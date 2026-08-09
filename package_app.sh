@@ -5,22 +5,11 @@ cd "$(dirname "$0")"
 PROJ="$PWD"
 VERSION=$(grep 'static let marketing' "$PROJ/Sources/FinderExplorer/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
 BUILD_NUM=$(grep 'static let build' "$PROJ/Sources/FinderExplorer/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
+APP="$PROJ/FinderExplorer.app"
+STAGE="$PROJ/.dmg_stage"
 
-build_arch () {
-    local ARCH=$1
-    local SUFFIX=$2
-    local BUILD_DIR=".build/${ARCH}-apple-macosx/release"
-    local APP="FinderExplorer_${VERSION}-${SUFFIX}.app"
-    local STAGING="FinderExplorer_${VERSION}-${SUFFIX}.staging"
-
-    echo "=== 打包 ${SUFFIX} ==="
-    rm -rf "$APP" "$STAGING"
-    mkdir -p "$STAGING/Contents/MacOS"
-    mkdir -p "$STAGING/Contents/Resources"
-
-    cp "$BUILD_DIR/FinderExplorer" "$STAGING/Contents/MacOS/"
-    cp "$PROJ/AppIcon.icns" "$STAGING/Contents/Resources/"
-    cat > "$STAGING/Contents/Info.plist" << PLIST
+write_plist() {
+cat > "$1" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -50,62 +39,32 @@ build_arch () {
 </dict>
 </plist>
 PLIST
-
-    mv "$STAGING" "$APP"
-    echo "  → $APP"
-    file "$APP/Contents/MacOS/FinderExplorer"
 }
 
-build_universal () {
-    local BUILD_DIR=".build/apple/Products/Release"
-    local APP="FinderExplorer_${VERSION}-universal.app"
-    local STAGING="FinderExplorer_${VERSION}-universal.staging"
+# 组装 FinderExplorer.app；给 SUFFIX 时打包成发布用 dmg（内含 Applications 快捷方式）
+pack() {
+    local BIN=$1 SUFFIX=$2
+    rm -rf "$APP"
+    mkdir -p "$APP/Contents/MacOS"
+    mkdir -p "$APP/Contents/Resources"
+    cp "$BIN" "$APP/Contents/MacOS/"
+    cp "$PROJ/AppIcon.icns" "$APP/Contents/Resources/"
+    write_plist "$APP/Contents/Info.plist"
 
-    echo "=== 打包 Universal ==="
-    rm -rf "$APP" "$STAGING"
-    mkdir -p "$STAGING/Contents/MacOS"
-    mkdir -p "$STAGING/Contents/Resources"
-
-    cp "$BUILD_DIR/FinderExplorer" "$STAGING/Contents/MacOS/"
-    cp "$PROJ/AppIcon.icns" "$STAGING/Contents/Resources/"
-    cat > "$STAGING/Contents/Info.plist" << PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>FinderExplorer</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.tyhoo.finderexplorer</string>
-    <key>CFBundleName</key>
-    <string>FinderExplorer</string>
-    <key>CFBundleDisplayName</key>
-    <string>FinderExplorer</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundleIconName</key>
-    <string>AppIcon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleVersion</key>
-    <string>${BUILD_NUM}</string>
-    <key>CFBundleShortVersionString</key>
-    <string>${VERSION}</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-</dict>
-</plist>
-PLIST
-
-    mv "$STAGING" "$APP"
-    echo "  → $APP"
-    file "$APP/Contents/MacOS/FinderExplorer"
+    if [ -n "$SUFFIX" ]; then
+        local DMG="$PROJ/FinderExplorer_${VERSION}-${SUFFIX}.dmg"
+        rm -rf "$STAGE" "$DMG"
+        mkdir -p "$STAGE"
+        ditto "$APP" "$STAGE/FinderExplorer.app"
+        ln -s /Applications "$STAGE/Applications"
+        hdiutil create -volname "FinderExplorer" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+        rm -rf "$STAGE"
+        echo "  → FinderExplorer_${VERSION}-${SUFFIX}.dmg"
+    fi
 }
 
 # 清理旧产物
-rm -rf "$PROJ"/FinderExplorer*.app "$PROJ"/FinderExplorer*.staging
+rm -rf "$PROJ"/FinderExplorer_*.dmg "$PROJ"/FinderExplorer_*.zip "$PROJ"/FinderExplorer_*.app "$APP" "$STAGE"
 
 echo "=== 构建 x86_64 ==="
 swift build -c release --disable-sandbox --arch x86_64
@@ -117,13 +76,18 @@ echo "=== 构建 Universal ==="
 swift build -c release --disable-sandbox --arch arm64 --arch x86_64
 
 echo ""
-build_arch x86_64  "amd64"
-echo ""
-build_arch arm64   "arm64"
-echo ""
-build_universal
+echo "=== 打包 ==="
+pack ".build/x86_64-apple-macosx/release/FinderExplorer" amd64
+pack ".build/arm64-apple-macosx/release/FinderExplorer" arm64
+pack ".build/apple/Products/Release/FinderExplorer" universal
+
+# 本地保留一份 universal 的 FinderExplorer.app 供直接运行
+pack ".build/apple/Products/Release/FinderExplorer" ""
+
 echo ""
 echo "=== 全部完成 ==="
-echo "Intel:  $PROJ/FinderExplorer_${VERSION}-amd64.app"
-echo "ARM:    $PROJ/FinderExplorer_${VERSION}-arm64.app"
-echo "通用:   $PROJ/FinderExplorer_${VERSION}-universal.app"
+echo "发布 dmg（上传 Releases）："
+echo "  FinderExplorer_${VERSION}-amd64.dmg"
+echo "  FinderExplorer_${VERSION}-arm64.dmg"
+echo "  FinderExplorer_${VERSION}-universal.dmg"
+echo "本地运行：$APP"

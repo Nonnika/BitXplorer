@@ -116,7 +116,7 @@ struct MainContentView: View {
         }
         .onChange(of: showHiddenFiles) { loadFiles() }
         .onAppear { loadFiles() }
-        .onChange(of: currentURL) { _ in startWatcher() }
+        .onChange(of: currentURL) { startWatcher() }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button(action: {
