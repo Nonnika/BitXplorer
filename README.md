@@ -46,13 +46,13 @@
 
 | 下载 | 架构 | 适用 |
 |------|------|------|
-| [FinderExplorer_1.2.0-universal.app.zip](https://github.com/cnwutianhao/finder-explorer/releases/download/1.2.0/FinderExplorer_1.2.0-universal.app.zip) | Universal (arm64 + x86_64) | **推荐**，不确定芯片选这个 |
-| [FinderExplorer_1.2.0-arm64.app.zip](https://github.com/cnwutianhao/finder-explorer/releases/download/1.2.0/FinderExplorer_1.2.0-arm64.app.zip) | arm64 | Apple Silicon (M1/M2/M3/M4) |
-| [FinderExplorer_1.2.0-amd64.app.zip](https://github.com/cnwutianhao/finder-explorer/releases/download/1.2.0/FinderExplorer_1.2.0-amd64.app.zip) | x86_64 | Intel Mac |
+| [FinderExplorer_1.2.0-universal.dmg](https://github.com/cnwutianhao/finder-explorer/releases/download/1.2.0/FinderExplorer_1.2.0-universal.dmg) | Universal (arm64 + x86_64) | **推荐**，不确定芯片选这个 |
+| [FinderExplorer_1.2.0-arm64.dmg](https://github.com/cnwutianhao/finder-explorer/releases/download/1.2.0/FinderExplorer_1.2.0-arm64.dmg) | arm64 | Apple Silicon (M1/M2/M3/M4) |
+| [FinderExplorer_1.2.0-amd64.dmg](https://github.com/cnwutianhao/finder-explorer/releases/download/1.2.0/FinderExplorer_1.2.0-amd64.dmg) | x86_64 | Intel Mac |
 
 > 查看芯片类型：点左上角  → "关于本机" → 看"芯片"一行。
 
-下载解压后，将 `.app` 拖入 `/Applications` 即可使用。
+下载后双击打开 `.dmg`，把 `FinderExplorer.app` 拖入 `Applications` 快捷方式即可安装。
 
 ## 系统
 
