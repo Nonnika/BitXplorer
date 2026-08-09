@@ -73,15 +73,21 @@ swift build --disable-sandbox
 open .build/x86_64-apple-macosx/debug/FinderExplorer
 ```
 
-## 打包为 .app
+## 打包为 dmg
 
 ```bash
 ./package_app.sh
 ```
 
-打包后的 `FinderExplorer_1.2.0-universal.app`（版本号自动从 AppVersion.swift 读取）可以直接双击运行，或拖入 `/Applications`。
+脚本会构建 x86_64 / arm64 / Universal 三个架构，并打包成 dmg 安装镜像（内含 Applications 快捷方式，拖拽即装）：
 
-也可以从 [Releases](https://github.com/cnwutianhao/finder-explorer/releases) 下载预编译版本。
+```
+FinderExplorer_<版本>-amd64.dmg
+FinderExplorer_<版本>-arm64.dmg
+FinderExplorer_<版本>-universal.dmg
+```
+
+同时在本地保留一份 `FinderExplorer.app`（Universal）可直接运行。版本号自动从 AppVersion.swift 读取。
 
 ## 项目结构
 
@@ -89,7 +95,7 @@ open .build/x86_64-apple-macosx/debug/FinderExplorer
 FinderExplorer/
 ├── Package.swift                 # Swift Package Manager 配置
 ├── build_and_run.sh              # Debug 构建 + 启动
-├── package_app.sh                # Release 打包 .app
+├── package_app.sh                # Release 打包 dmg（三架构）
 ├── generate_icon.swift           # 用代码生成 App 图标
 └── Sources/FinderExplorer/
     ├── AppVersion.swift          # 版本号定义
