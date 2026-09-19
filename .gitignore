@@ -11,9 +11,8 @@ DerivedData/
 ._*
 Thumbs.db
 
-# 打包产物
-FinderExplorer.app/
-FinderExplorer-*.app/
+# 构建产物（package_app.sh 输出目录）
+build/
 
 # Xcode
 xcuserdata/

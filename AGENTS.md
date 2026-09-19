@@ -34,9 +34,11 @@ Not lazy about: understanding the problem (read it fully and trace the real flow
 ## Project: FinderExplorer
 
 - **Language**: Swift 6.0 · **UI**: SwiftUI + AppKit · **Min**: macOS 14.0 · **Packages**: none (zero third-party deps, Foundation/AppKit/SwiftUI only)
-- **Debug build**: `swift build --disable-sandbox`
-- **Release packaging**: `./package_app.sh` produces three architectures — `FinderExplorer_<ver>-amd64.app`, `-arm64.app`, `-universal.app`. Universal binary lives in `.build/apple/Products/Release/`, single-arch in `.build/<arch>-apple-macosx/release/`.
-- **Versioning**: `Sources/FinderExplorer/AppVersion.swift` is the single source of truth (`marketing` + `build`). Bump it there only — window title and `Info.plist` (via `package_app.sh` grep) sync automatically. Never hardcode a version elsewhere.
+- **Debug build + relaunch**: `swift build --disable-sandbox` (incremental ≈ 1s), then launch the binary at the path from `swift build --disable-sandbox --show-bin-path`. `./build_and_run.sh` does both and kills the previous instance first. Don't pass `--arch` in the inner loop — multi-arch builds need full Xcode (see packaging).
+- **Release packaging**: `./package_app.sh` builds x86_64, arm64 and Universal, and puts **every artifact in `build/`** (gitignored): `build/FinderExplorer_<ver>-amd64.dmg`, `-arm64.dmg`, `-universal.dmg`, plus a runnable `build/FinderExplorer.app`. Intermediates stay in `.build/`: Universal at `.build/apple/Products/Release/`, single-arch at `.build/<arch>-apple-macosx/release/`. Nothing is written to the repo root.
+- **Versioning**: `Sources/FinderExplorer/AppVersion.swift` is the single source of truth (`marketing` + `build`). Bump it there only — window title and `Info.plist` (via `package_app.sh` grep) sync automatically. Never hardcode a version elsewhere. The bump is **manual**: no CI, no auto-increment, no `git describe` fallback, so the file and the release tag are updated by hand together.
+- **Multi-arch builds need full Xcode**: `--arch arm64 --arch x86_64` (hence `package_app.sh`) fails with `xcbuild executable ... does not exist` when `xcode-select -p` points at Command Line Tools. Fix: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. Single-arch `swift build` works with CLT alone.
+- **Upgrading an installed app**: fixed bundle id `com.tyhoo.finderexplorer`, no auto-updater, and no user state (no `UserDefaults` / Application Support) — update by dragging the new app over `/Applications/FinderExplorer.app` and choosing 替换.
 - `@MainActor` on every ObservableObject.
 - Reusable file operations live in `FileSystemService` — reuse it for CRUD/trash/reveal/copy-path instead of duplicating logic. One-off filesystem probes (`fileExists`, `open` with `O_EVTONLY` for watching) may use Foundation directly.
 - Icons: SF Symbols for generic UI, `NSWorkspace.icon(forFile:)` for real file icons.
