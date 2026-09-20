@@ -3,10 +3,10 @@ set -e
 cd "$(dirname "$0")"
 
 PROJ="$PWD"
-VERSION=$(grep 'static let marketing' "$PROJ/Sources/FinderExplorer/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
-BUILD_NUM=$(grep 'static let build' "$PROJ/Sources/FinderExplorer/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
+VERSION=$(grep 'static let marketing' "$PROJ/Sources/DuoXplore/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
+BUILD_NUM=$(grep 'static let build' "$PROJ/Sources/DuoXplore/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
 OUT="$PROJ/build"
-APP="$OUT/FinderExplorer.app"
+APP="$OUT/DuoXplore.app"
 STAGE="$OUT/.dmg_stage"
 mkdir -p "$OUT"
 
@@ -17,13 +17,13 @@ cat > "$1" << PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>FinderExplorer</string>
+    <string>DuoXplore</string>
     <key>CFBundleIdentifier</key>
-    <string>com.tyhoo.finderexplorer</string>
+    <string>top.struct.duoxplore</string>
     <key>CFBundleName</key>
-    <string>FinderExplorer</string>
+    <string>DuoXplore</string>
     <key>CFBundleDisplayName</key>
-    <string>FinderExplorer</string>
+    <string>DuoXplore</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
@@ -43,7 +43,7 @@ cat > "$1" << PLIST
 PLIST
 }
 
-# 组装 FinderExplorer.app；给 SUFFIX 时打包成发布用 dmg（内含 Applications 快捷方式）
+# 组装 DuoXplore.app；给 SUFFIX 时打包成发布用 dmg（内含 Applications 快捷方式）
 pack() {
     local BIN=$1 SUFFIX=$2
     rm -rf "$APP"
@@ -54,20 +54,20 @@ pack() {
     write_plist "$APP/Contents/Info.plist"
 
     if [ -n "$SUFFIX" ]; then
-        local DMG="$OUT/FinderExplorer_${VERSION}-${SUFFIX}.dmg"
+        local DMG="$OUT/DuoXplore_${VERSION}-${SUFFIX}.dmg"
         rm -rf "$STAGE" "$DMG"
         mkdir -p "$STAGE"
-        ditto "$APP" "$STAGE/FinderExplorer.app"
+        ditto "$APP" "$STAGE/DuoXplore.app"
         ln -s /Applications "$STAGE/Applications"
-        hdiutil create -volname "FinderExplorer" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+        hdiutil create -volname "DuoXplore" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
         rm -rf "$STAGE"
-        echo "  → FinderExplorer_${VERSION}-${SUFFIX}.dmg"
+        echo "  → DuoXplore_${VERSION}-${SUFFIX}.dmg"
     fi
 }
 
 # 清理旧产物（build/ 为新目录，仓库根目录的残留一并清掉）
-rm -rf "$OUT"/FinderExplorer_*.dmg "$OUT"/FinderExplorer_*.zip "$APP" "$STAGE"
-rm -rf "$PROJ"/FinderExplorer_*.dmg "$PROJ"/FinderExplorer_*.zip "$PROJ"/FinderExplorer.app "$PROJ"/FinderExplorer-*.app "$PROJ"/.dmg_stage
+rm -rf "$OUT"/DuoXplore_*.dmg "$OUT"/DuoXplore_*.zip "$APP" "$STAGE"
+rm -rf "$PROJ"/DuoXplore_*.dmg "$PROJ"/DuoXplore_*.zip "$PROJ"/DuoXplore.app "$PROJ"/DuoXplore-*.app "$PROJ"/.dmg_stage
 
 echo "=== 构建 x86_64 ==="
 swift build -c release --disable-sandbox --arch x86_64
@@ -80,17 +80,17 @@ swift build -c release --disable-sandbox --arch arm64 --arch x86_64
 
 echo ""
 echo "=== 打包 ==="
-pack ".build/x86_64-apple-macosx/release/FinderExplorer" amd64
-pack ".build/arm64-apple-macosx/release/FinderExplorer" arm64
-pack ".build/apple/Products/Release/FinderExplorer" universal
+pack ".build/x86_64-apple-macosx/release/DuoXplore" amd64
+pack ".build/arm64-apple-macosx/release/DuoXplore" arm64
+pack ".build/apple/Products/Release/DuoXplore" universal
 
-# 本地保留一份 universal 的 FinderExplorer.app 供直接运行
-pack ".build/apple/Products/Release/FinderExplorer" ""
+# 本地保留一份 universal 的 DuoXplore.app 供直接运行
+pack ".build/apple/Products/Release/DuoXplore" ""
 
 echo ""
 echo "=== 全部完成 ==="
 echo "发布 dmg（上传 Releases）："
-echo "  build/FinderExplorer_${VERSION}-amd64.dmg"
-echo "  build/FinderExplorer_${VERSION}-arm64.dmg"
-echo "  build/FinderExplorer_${VERSION}-universal.dmg"
+echo "  build/DuoXplore_${VERSION}-amd64.dmg"
+echo "  build/DuoXplore_${VERSION}-arm64.dmg"
+echo "  build/DuoXplore_${VERSION}-universal.dmg"
 echo "本地运行：$APP"

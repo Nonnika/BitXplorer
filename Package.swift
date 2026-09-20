@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "FinderExplorer",
+    name: "DuoXplore",
     platforms: [
         .macOS(.v14)
     ],
     targets: [
         .executableTarget(
-            name: "FinderExplorer",
-            path: "Sources/FinderExplorer",
+            name: "DuoXplore",
+            path: "Sources/DuoXplore",
             resources: [
                 .copy("../../AppIcon.icns")
             ]

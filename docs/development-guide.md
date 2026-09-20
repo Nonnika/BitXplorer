@@ -1,4 +1,4 @@
-# FinderExplorer 开发流程指南
+# DuoXplore 开发流程指南
 
 面向本仓库的日常开发文档：环境准备 → 构建运行 → 代码结构 → 规范 → 提交 → 发布。
 
@@ -38,7 +38,7 @@ swift build --disable-sandbox      # 首次全量编译约 60s
 ./build_and_run.sh
 ```
 
-脚本做三件事：本机架构 Debug 构建 → `pkill -x FinderExplorer` 关掉上一实例 → `open` 新二进制。改完代码敲一次，约 1–3 秒后应用带着新逻辑弹出。产物路径不硬编码，由 `swift build --disable-sandbox --show-bin-path` 推导，所以 Intel / Apple Silicon 通用。
+脚本做三件事：本机架构 Debug 构建 → `pkill -x DuoXplore` 关掉上一实例 → `open` 新二进制。改完代码敲一次，约 1–3 秒后应用带着新逻辑弹出。产物路径不硬编码，由 `swift build --disable-sandbox --show-bin-path` 推导，所以 Intel / Apple Silicon 通用。
 
 **B. Xcode 里 ⌘R（需要断点 / 调试器时）**
 
@@ -46,7 +46,7 @@ swift build --disable-sandbox      # 首次全量编译约 60s
 open Package.swift          # 以 SwiftPM 工程打开，不要生成 .xcodeproj 提交回仓库
 ```
 
-scheme 选 `FinderExplorer`，⌘R 构建并运行，可下断点、看 LLDB 变量、启用 Main Thread Checker / Sanitizer。适合排查 `NSEvent` 键盘监听、`DispatchSource` watcher 这类时序问题。注意：SPM 可执行 target 的 SwiftUI Preview（⌥⌘↩）在这个工程里基本用不上，因为视图全靠顶层 `@State` + `@Binding` 注入（见 3.1），没有无参可预览的独立组件。
+scheme 选 `DuoXplore`，⌘R 构建并运行，可下断点、看 LLDB 变量、启用 Main Thread Checker / Sanitizer。适合排查 `NSEvent` 键盘监听、`DispatchSource` watcher 这类时序问题。注意：SPM 可执行 target 的 SwiftUI Preview（⌥⌘↩）在这个工程里基本用不上，因为视图全靠顶层 `@State` + `@Binding` 注入（见 3.1），没有无参可预览的独立组件。
 
 **C. 保存即重建（可选，需要 fswatch：`brew install fswatch`）**
 
@@ -62,7 +62,7 @@ fswatch -o Sources | while read; do ./build_and_run.sh; done
 
 ```bash
 ./package_app.sh
-open build/FinderExplorer.app      # 本地直接运行（Universal）
+open build/DuoXplore.app      # 本地直接运行（Universal）
 ```
 
 一次产出三个架构 + 三个 dmg，**全部落在 `build/`（已 gitignore，仓库根目录不再有产物）**。需要完整 Xcode，见第 7 节。
@@ -71,11 +71,11 @@ open build/FinderExplorer.app      # 本地直接运行（Universal）
 
 | 构建命令 | 产物路径 |
 |---|---|
-| `swift build --disable-sandbox` | `.build/arm64-apple-macosx/debug/FinderExplorer` |
-| `swift build -c release --disable-sandbox --arch arm64` | `.build/arm64-apple-macosx/release/FinderExplorer` |
-| `swift build -c release --disable-sandbox --arch x86_64` | `.build/x86_64-apple-macosx/release/FinderExplorer` |
-| `swift build -c release --disable-sandbox --arch arm64 --arch x86_64` | `.build/apple/Products/Release/FinderExplorer`（Universal） |
-| `./package_app.sh` | `build/FinderExplorer.app`、`build/FinderExplorer_<版本>-{amd64,arm64,universal}.dmg` |
+| `swift build --disable-sandbox` | `.build/arm64-apple-macosx/debug/DuoXplore` |
+| `swift build -c release --disable-sandbox --arch arm64` | `.build/arm64-apple-macosx/release/DuoXplore` |
+| `swift build -c release --disable-sandbox --arch x86_64` | `.build/x86_64-apple-macosx/release/DuoXplore` |
+| `swift build -c release --disable-sandbox --arch arm64 --arch x86_64` | `.build/apple/Products/Release/DuoXplore`（Universal） |
+| `./package_app.sh` | `build/DuoXplore.app`、`build/DuoXplore_<版本>-{amd64,arm64,universal}.dmg` |
 
 `.build/` 是 SPM 缓存 + 中间产物（已忽略，可随时 `rm -rf .build` 强制全量重编，约 60s）；`build/` 只放对外交付物，直接 `open` / 上传 Releases。两者都不进版本库。
 
@@ -106,9 +106,9 @@ Package.swift                    # SPM 可执行目标；资源只声明了 AppI
 build_and_run.sh                 # 本机架构 Debug 构建 + 重启应用
 package_app.sh                   # 生成 Info.plist、组装 .app、打三个 dmg → build/
 generate_icon.swift              # 用代码生成 AppIcon.icns
-Sources/FinderExplorer/
+Sources/DuoXplore/
 ├── AppVersion.swift             # 版本号唯一真源（marketing + build）
-├── FinderExplorerApp.swift      # @main 入口：全局状态、菜单命令、关于窗口、图标注入
+├── DuoXploreApp.swift      # @main 入口：全局状态、菜单命令、关于窗口、图标注入
 ├── Models/
 │   ├── FileItem.swift           # 文件模型（URL 派生属性、格式化展示）
 │   ├── SortOptions.swift        # SortOption / SortDirection
@@ -125,17 +125,17 @@ Sources/FinderExplorer/
 
 ### 3.1 状态流向（改 UI 前必读）
 
-单一 `Window` 场景，**没有全局 store**。所有应用级状态是 `FinderExplorerApp` 的 `@State`，通过 `@Binding` 逐层下传；`MainContentView` 再传给 `FileListView`：
+单一 `Window` 场景，**没有全局 store**。所有应用级状态是 `DuoXploreApp` 的 `@State`，通过 `@Binding` 逐层下传；`MainContentView` 再传给 `FileListView`：
 
 ```
-FinderExplorerApp (@State currentURL/files/selectedURLs/clipboard…/showHiddenFiles)
+DuoXploreApp (@State currentURL/files/selectedURLs/clipboard…/showHiddenFiles)
    ├─ SidebarTreeView      —— 回调 onSelect：push 历史 + 改 currentURL + 重新列目录
    └─ MainContentView      —— 持有 watcher / 搜索词 / 重命名与新建的局部 @State
         ├─ BreadcrumbBar   —— onNavigate 回调
         └─ FileListView    —— 排序、点击、键盘、右键菜单
 ```
 
-新增一个跨视图状态：在 `FinderExplorerApp` 加 `@State` → 加 `@Binding` → 菜单里用 `.commands` 注册快捷键。新增纯视图内状态：用 `@State`，不要污染顶层。
+新增一个跨视图状态：在 `DuoXploreApp` 加 `@State` → 加 `@Binding` → 菜单里用 `.commands` 注册快捷键。新增纯视图内状态：用 `@State`，不要污染顶层。
 
 ### 3.2 关键实现约定
 
@@ -150,7 +150,7 @@ FinderExplorerApp (@State currentURL/files/selectedURLs/clipboard…/showHiddenF
 
 ## 4. 版本号管理
 
-`Sources/FinderExplorer/AppVersion.swift` 是唯一真源：
+`Sources/DuoXplore/AppVersion.swift` 是唯一真源：
 
 ```swift
 enum AppVersion {
@@ -210,7 +210,7 @@ git push -u origin feat/<short-topic>  # 提 PR，由维护者合并回 main
 5. 创建 Release，上传 `build/` 下三个 dmg（`-amd64` / `-arm64` / `-universal`），Release Notes 用中文，并提示「不确定芯片选 universal」。
 
    ```bash
-   gh release create 1.2.1 build/FinderExplorer_1.2.1-*.dmg --title "1.2.1" --notes "<中文更新说明>"
+   gh release create 1.2.1 build/DuoXplore_1.2.1-*.dmg --title "1.2.1" --notes "<中文更新说明>"
    ```
 
 6. 同步更新 `README.md` 的下载表格与版本号链接（表格里的直链含版本号，逐条替换）。
@@ -235,13 +235,13 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 所有 `swift build` 都带 `--disable-sandbox`；本项目会读写用户真实文件系统，SPM 沙箱会拦。
 
 **双击 dmg 里的 App 提示无法打开 / 未验证**
-`package_app.sh` 不做签名与公证。本地自用：右键 → 打开，或 `xattr -dr com.apple.quarantine /Applications/FinderExplorer.app`。对外分发需要补 codesign + notarytool。
+`package_app.sh` 不做签名与公证。本地自用：右键 → 打开，或 `xattr -dr com.apple.quarantine /Applications/DuoXplore.app`。对外分发需要补 codesign + notarytool。
 
 **运行 Debug 二进制看不到窗口**
 直接 `./build_and_run.sh`（它用 `--show-bin-path` 定位产物，不会搞错架构目录）。手动执行时注意 `arm64-apple-macosx` 与 `x86_64-apple-macosx` 要和 `uname -m` 对应。
 
 **图标没生效**
-Debug 裸二进制没有 bundle。图标来自 `package_app.sh` 组装的 `Contents/Resources/AppIcon.icns`，运行时再由 `setAppIcon()` 从 `FinderExplorer_FinderExplorer.bundle` 读取。
+Debug 裸二进制没有 bundle。图标来自 `package_app.sh` 组装的 `Contents/Resources/AppIcon.icns`，运行时再由 `setAppIcon()` 从 `DuoXplore_DuoXplore.bundle` 读取。
 
 重新生成 `AppIcon.icns`（`generate_icon.swift` 只产出 iconset 里的 PNG，需 `iconutil` 转换；目录必须以 `.iconset` 结尾）：
 
@@ -262,10 +262,10 @@ rm -rf AppIcon.iconset
 
 1. 从 Releases 下载对应架构的新 dmg（不确定就选 `-universal`）。
 2. 双击挂载，**先退出正在运行的旧版**（⌘Q，或右键 Dock 图标退出）。
-3. 把 dmg 里的 `FinderExplorer.app` 拖进 `Applications` 快捷方式，弹窗选 **「替换」**（复制和替换）。
-4. 弹出旧 dmg，启动新版，用「关于 FinderExplorer」窗口核对版本号。
+3. 把 dmg 里的 `DuoXplore.app` 拖进 `Applications` 快捷方式，弹窗选 **「替换」**（复制和替换）。
+4. 弹出旧 dmg，启动新版，用「关于 DuoXplore」窗口核对版本号。
 
-版本号显示在窗口标题 `FinderExplorer — 文件管理器 v<marketing>` 与关于窗口里，升级后看这两处即可确认生效。
+版本号显示在关于窗口里（主窗口标题只显示应用名 `DuoXplore`，不显示版本），升级后打开「关于」即可确认生效。
 
 ### 8.2 提示「无法打开 / 已损坏」时
 
@@ -273,8 +273,8 @@ rm -rf AppIcon.iconset
 
 ```bash
 # 关掉旧进程，替换后再执行
-xattr -dr com.apple.quarantine /Applications/FinderExplorer.app
-open /Applications/FinderExplorer.app
+xattr -dr com.apple.quarantine /Applications/DuoXplore.app
+open /Applications/DuoXplore.app
 ```
 
 或右键图标 → 打开 → 再点「打开」。
@@ -282,19 +282,19 @@ open /Applications/FinderExplorer.app
 ### 8.3 命令行升级（开发者自用）
 
 ```bash
-hdiutil attach build/FinderExplorer_1.2.1-universal.dmg -nobrowse
-pkill -x FinderExplorer 2>/dev/null || true
-rm -rf /Applications/FinderExplorer.app
-cp -R "/Volumes/FinderExplorer/FinderExplorer.app" /Applications/
-hdiutil detach "/Volumes/FinderExplorer"
-open /Applications/FinderExplorer.app
+hdiutil attach build/DuoXplore_1.2.1-universal.dmg -nobrowse
+pkill -x DuoXplore 2>/dev/null || true
+rm -rf /Applications/DuoXplore.app
+cp -R "/Volumes/DuoXplore/DuoXplore.app" /Applications/
+hdiutil detach "/Volumes/DuoXplore"
+open /Applications/DuoXplore.app
 ```
 
-`/Volumes/FinderExplorer` 是 dmg 的卷名（`hdiutil create -volname FinderExplorer`）。删 `/Applications` 里旧副本时**务必确认路径就是 `/Applications/FinderExplorer.app`**，不要写成 `/Applications/FinderExplorer`（会误删整个应用的父级路径）。
+`/Volumes/DuoXplore` 是 dmg 的卷名（`hdiutil create -volname DuoXplore`）。删 `/Applications` 里旧副本时**务必确认路径就是 `/Applications/DuoXplore.app`**，不要写成 `/Applications/DuoXplore`（会误删整个应用的父级路径）。
 
 ### 8.4 别用 Debug 裸二进制「升级」
 
-`.build/.../debug/FinderExplorer` 没有 bundle，拖不进 `/Applications` 也不会覆盖已装的 `.app`；它只用于开发验证。要给用户/自己更新，必须走 `./package_app.sh` 产出的 dmg。
+`.build/.../debug/DuoXplore` 没有 bundle，拖不进 `/Applications` 也不会覆盖已装的 `.app`；它只用于开发验证。要给用户/自己更新，必须走 `./package_app.sh` 产出的 dmg。
 
 ---
 
@@ -302,4 +302,4 @@ open /Applications/FinderExplorer.app
 
 当前 `Package.swift` 只有 `executableTarget`，**没有测试 target**，非平凡逻辑靠手工回归。
 
-若要补测，最小改动：把可测逻辑保持在 `FileSystemService` / `Models`（这两个目录不依赖 `NSWindow`，`moveToTrash`、`pasteItems` 例外——它们弹 `NSAlert`），然后新增 `.testTarget` 与 `Tests/FinderExplorerTests/`。优先覆盖：`isValidFileName`、`nextAvailableName` 的副本命名序列、`NavigationState` 的双栈行为（push 清空 forward、goBack/goForward 对称）、排序比较器。
+若要补测，最小改动：把可测逻辑保持在 `FileSystemService` / `Models`（这两个目录不依赖 `NSWindow`，`moveToTrash`、`pasteItems` 例外——它们弹 `NSAlert`），然后新增 `.testTarget` 与 `Tests/DuoXploreTests/`。优先覆盖：`isValidFileName`、`nextAvailableName` 的副本命名序列、`NavigationState` 的双栈行为（push 清空 forward、goBack/goForward 对称）、排序比较器。

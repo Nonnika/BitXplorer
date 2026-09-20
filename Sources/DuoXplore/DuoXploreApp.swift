@@ -11,7 +11,7 @@ struct AboutView: View {
                 .resizable()
                 .frame(width: 80, height: 80)
 
-            Text("FinderExplorer")
+            Text("DuoXplore")
                 .font(.system(size: 18, weight: .bold))
 
             Text("版本 \(AppVersion.marketing) (Build \(AppVersion.build))")
@@ -50,7 +50,7 @@ struct AboutView: View {
 }
 
 @main
-struct FinderExplorerApp: App {
+struct DuoXploreApp: App {
     @StateObject private var navigationState = NavigationState()
     @State private var currentURL = URL(fileURLWithPath: "/Users/\(NSUserName())")
     @State private var files: [FileItem] = []
@@ -87,7 +87,7 @@ struct FinderExplorerApp: App {
             backing: .buffered,
             defer: false
         )
-        window.title = "关于 FinderExplorer"
+        window.title = "关于 DuoXplore"
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: AboutView())
         window.setContentSize(NSSize(width: 380, height: 320))
@@ -97,22 +97,22 @@ struct FinderExplorerApp: App {
     }
 
     private func setAppIcon() {
-        guard let bundleURL = Bundle.main.url(forResource: "FinderExplorer_FinderExplorer", withExtension: "bundle"),
+        guard let bundleURL = Bundle.main.url(forResource: "DuoXplore_DuoXplore", withExtension: "bundle"),
               let bundle = Bundle(url: bundleURL) else {
-            print("[FinderExplorer] 未找到资源 bundle")
+            print("[DuoXplore] 未找到资源 bundle")
             return
         }
         guard let icnsURL = bundle.url(forResource: "AppIcon", withExtension: "icns") else {
-            print("[FinderExplorer] 未找到 AppIcon.icns")
+            print("[DuoXplore] 未找到 AppIcon.icns")
             return
         }
         let icon = NSImage(contentsOf: icnsURL)
         NSApp.applicationIconImage = icon
-        print("[FinderExplorer] 图标已设置")
+        print("[DuoXplore] 图标已设置")
     }
 
     var body: some Scene {
-        Window("FinderExplorer — 文件管理器 v\(AppVersion.marketing)", id: "main") {
+        Window("DuoXplore", id: "main") {
             NavigationSplitView {
                 SidebarTreeView(
                     roots: [
@@ -150,14 +150,14 @@ struct FinderExplorerApp: App {
                 setAppIcon()
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
-                print("[FinderExplorer] 窗口已显示")
+                print("[DuoXplore] 窗口已显示")
             }
         }
         .defaultSize(width: 1100, height: 700)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("关于 FinderExplorer") {
+                Button("关于 DuoXplore") {
                     showAboutWindow()
                 }
             }
