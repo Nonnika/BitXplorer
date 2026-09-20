@@ -1,63 +1,151 @@
 import Cocoa
 import Foundation
 
-/// 用代码生成 App 图标 — 蓝紫渐变 + 文件夹 + 放大镜
+/// 用代码生成 App 图标 — 遵循 macOS（Big Sur+）图标规范：
+/// - 1024 画布，作品区域约 824/1024 居中，四周透明边距（小尺寸按比例放大占比）
+/// - 正面平视绘制（无透视），squircle 圆角 + 柔和投影 + 顶面高光
+/// - 主体：正面文件夹 + 双向交换箭头（DuoXplore 的双栏文件交换主题）
+
+/// 各尺寸的作品区域占画布比例：大尺寸 0.824，越小越接近满幅
+func artworkFraction(for size: CGFloat) -> CGFloat {
+    switch size {
+    case ..<24: return 1.0
+    case ..<48: return 0.94
+    case ..<96: return 0.88
+    default: return 0.824
+    }
+}
+
+func drawArrow(ctx: CGContext, from: CGPoint, to: CGPoint, lineWidth: CGFloat, color: CGColor) {
+    let dx = to.x - from.x, dy = to.y - from.y
+    let len = sqrt(dx * dx + dy * dy)
+    let ux = dx / len, uy = dy / len
+    let headLength = lineWidth * 1.8
+    let shaftEnd = CGPoint(x: to.x - ux * headLength, y: to.y - uy * headLength)
+
+    // 箭杆
+    ctx.setStrokeColor(color)
+    ctx.setLineWidth(lineWidth)
+    ctx.setLineCap(.round)
+    ctx.move(to: from)
+    ctx.addLine(to: shaftEnd)
+    ctx.strokePath()
+
+    // 箭头
+    let headHalf = lineWidth * 1.5
+    let perp = CGPoint(x: -uy, y: ux)
+    ctx.setFillColor(color)
+    ctx.move(to: to)
+    ctx.addLine(to: CGPoint(x: shaftEnd.x + perp.x * headHalf, y: shaftEnd.y + perp.y * headHalf))
+    ctx.addLine(to: CGPoint(x: shaftEnd.x - perp.x * headHalf, y: shaftEnd.y - perp.y * headHalf))
+    ctx.closePath()
+    ctx.fillPath()
+}
+
 func generateAppIcon(size: CGFloat) -> NSImage {
     let image = NSImage(size: NSSize(width: size, height: size))
     image.lockFocus()
-
-    let rect = CGRect(x: 0, y: 0, width: size, height: size)
     let ctx = NSGraphicsContext.current!.cgContext
 
-    // 圆角矩形背景
-    let cornerRadius = size * 0.225
-    let roundedPath = CGPath(roundedRect: rect,
-                             cornerWidth: cornerRadius,
-                             cornerHeight: cornerRadius,
-                             transform: nil)
-    ctx.addPath(roundedPath)
+    let fraction = artworkFraction(for: size)
+    let artwork = size * fraction
+    let offset = (size - artwork) / 2
+    let cornerRadius = artwork * 0.225
+    let squircle = CGRect(x: offset, y: offset, width: artwork, height: artwork)
+
+    // 投影（小尺寸省略，避免糊成一团）
+    ctx.saveGState()
+    if size >= 96 {
+        ctx.setShadow(offset: NSSize(width: 0, height: -size * 0.018),
+                      blur: size * 0.045,
+                      color: CGColor(gray: 0, alpha: 0.35))
+    }
+    ctx.addPath(CGPath(roundedRect: squircle, cornerWidth: cornerRadius,
+                       cornerHeight: cornerRadius, transform: nil))
+    ctx.setFillColor(CGColor(red: 0.10, green: 0.38, blue: 0.90, alpha: 1))
+    ctx.fillPath()
+    ctx.restoreGState()
+
+    // 背景渐变 + 顶面高光（裁剪到 squircle 内）
+    ctx.saveGState()
+    ctx.addPath(CGPath(roundedRect: squircle, cornerWidth: cornerRadius,
+                       cornerHeight: cornerRadius, transform: nil))
     ctx.clip()
 
-    // 渐变背景：蓝紫色
-    let colors = [
-        CGColor(red: 0.25, green: 0.40, blue: 0.90, alpha: 1.0),
-        CGColor(red: 0.55, green: 0.30, blue: 0.85, alpha: 1.0)
-    ]
-    let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                               colors: colors as CFArray,
-                               locations: [0.0, 1.0])!
-    ctx.drawLinearGradient(gradient,
-                           start: CGPoint(x: 0, y: size),
-                           end: CGPoint(x: size, y: 0),
+    let bg = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [
+        CGColor(srgbRed: 16/255.0, green: 110/255.0, blue: 105/255.0, alpha: 1),
+        CGColor(srgbRed: 122/255.0, green: 219/255.0, blue: 212/255.0, alpha: 1),
+    ] as CFArray, locations: [0, 1])!
+    ctx.drawLinearGradient(bg, start: CGPoint(x: 0, y: offset),
+                           end: CGPoint(x: 0, y: offset + artwork), options: [])
+
+    let glass = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [
+        CGColor(gray: 1, alpha: 0.28),
+        CGColor(gray: 1, alpha: 0),
+    ] as CFArray, locations: [0, 1])!
+    ctx.drawLinearGradient(glass,
+                           start: CGPoint(x: 0, y: offset + artwork),
+                           end: CGPoint(x: 0, y: offset + artwork * 0.45),
                            options: [])
 
-    // 文件夹图标 — 用 SF Symbol
-    let symbolSize = size * 0.55
-    let yOffset = size * 0.02
-
-    // 文件夹本体
-    if let folderSymbol = NSImage(systemSymbolName: "folder.fill",
-                                   accessibilityDescription: nil) {
-        let config = NSImage.SymbolConfiguration(pointSize: symbolSize, weight: .medium)
-        if let configured = folderSymbol.withSymbolConfiguration(config) {
-            let symbolRect = CGRect(x: (size - symbolSize) / 2,
-                                     y: (size - symbolSize) / 2 + yOffset - symbolSize * 0.05,
-                                     width: symbolSize,
-                                     height: symbolSize)
-            configured.draw(in: symbolRect, from: .zero, operation: .sourceOver, fraction: 0.95)
-        }
+    // 文件夹主体（坐标均为 squircle 内的归一化比例，y 向上）
+    let A = artwork
+    let x0 = offset, y0 = offset
+    func rect(_ nx: CGFloat, _ ny: CGFloat, _ nw: CGFloat, _ nh: CGFloat, _ nr: CGFloat) -> CGPath {
+        CGPath(roundedRect: CGRect(x: x0 + nx * A, y: y0 + ny * A,
+                                   width: nw * A, height: nh * A),
+               cornerWidth: nr * A, cornerHeight: nr * A, transform: nil)
     }
 
-    // 放大镜覆盖层
-    if let magnifier = NSImage(systemSymbolName: "magnifyingglass.circle.fill",
-                                accessibilityDescription: nil) {
-        let magSize = size * 0.30
-        let config = NSImage.SymbolConfiguration(pointSize: magSize, weight: .bold)
-        if let configured = magnifier.withSymbolConfiguration(config) {
-            let magRect = CGRect(x: size * 0.09, y: size * 0.03, width: magSize, height: magSize)
-            configured.draw(in: magRect, from: .zero, operation: .sourceOver, fraction: 1.0)
-        }
-    }
+    // 背板 + 标签页（较深蓝，上缘露出）
+    let backGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [
+        CGColor(gray: 1, alpha: 0.10),
+        CGColor(gray: 1, alpha: 0.35),
+    ] as CFArray, locations: [0, 1])!
+    let backTop = CGRect(x: x0 + 0.10 * A, y: y0 + 0.30 * A,
+                         width: 0.80 * A, height: 0.44 * A)
+    let tab = CGRect(x: x0 + 0.10 * A, y: y0 + 0.30 * A,
+                     width: 0.34 * A, height: 0.50 * A)
+    ctx.addPath(CGPath(roundedRect: backTop, cornerWidth: 0.045 * A,
+                       cornerHeight: 0.045 * A, transform: nil))
+    ctx.clip()
+    ctx.drawLinearGradient(backGrad, start: CGPoint(x: 0, y: y0 + 0.30 * A),
+                           end: CGPoint(x: 0, y: y0 + 0.80 * A), options: [])
+    ctx.restoreGState()
+    ctx.saveGState()
+    ctx.addPath(CGPath(roundedRect: tab, cornerWidth: 0.045 * A,
+                       cornerHeight: 0.045 * A, transform: nil))
+    ctx.clip()
+    ctx.drawLinearGradient(backGrad, start: CGPoint(x: 0, y: y0 + 0.30 * A),
+                           end: CGPoint(x: 0, y: y0 + 0.80 * A), options: [])
+    ctx.restoreGState()
+
+    // 前板（白色系，占文件夹下半部）
+    ctx.saveGState()
+    let front = CGRect(x: x0 + 0.10 * A, y: y0 + 0.24 * A,
+                       width: 0.80 * A, height: 0.44 * A)
+    ctx.addPath(CGPath(roundedRect: front, cornerWidth: 0.045 * A,
+                       cornerHeight: 0.045 * A, transform: nil))
+    ctx.clip()
+    let frontGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [
+        CGColor(srgbRed: 0.88, green: 0.98, blue: 0.97, alpha: 1),
+        CGColor(gray: 1, alpha: 1),
+    ] as CFArray, locations: [0, 1])!
+    ctx.drawLinearGradient(frontGrad, start: CGPoint(x: 0, y: y0 + 0.24 * A),
+                           end: CGPoint(x: 0, y: y0 + 0.68 * A), options: [])
+
+    // 双向交换箭头：上排向右、下排向左（双栏文件交换）
+    let arrowColor = CGColor(srgbRed: 57/255.0, green: 197/255.0, blue: 187/255.0, alpha: 1)
+    let lw = 0.05 * A
+    drawArrow(ctx: ctx,
+              from: CGPoint(x: x0 + 0.28 * A, y: y0 + 0.545 * A),
+              to: CGPoint(x: x0 + 0.74 * A, y: y0 + 0.545 * A),
+              lineWidth: lw, color: arrowColor)
+    drawArrow(ctx: ctx,
+              from: CGPoint(x: x0 + 0.72 * A, y: y0 + 0.375 * A),
+              to: CGPoint(x: x0 + 0.26 * A, y: y0 + 0.375 * A),
+              lineWidth: lw, color: arrowColor)
+    ctx.restoreGState()
 
     image.unlockFocus()
     return image

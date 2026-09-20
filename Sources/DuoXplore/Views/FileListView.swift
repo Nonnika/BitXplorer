@@ -115,7 +115,7 @@ struct FileListView: View {
                     }
                 }
                 .onAppear { installKeyboardMonitor() }
-                .onChange(of: files.count) { count in
+                .onChange(of: files.count) { _, count in
                     if let idx = focusedRowIndex, idx >= count { focusedRowIndex = nil }
                 }
             }
