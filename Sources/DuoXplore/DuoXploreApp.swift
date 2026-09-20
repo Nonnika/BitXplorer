@@ -18,7 +18,7 @@ struct AboutView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
 
-            Text("一个基于 SwiftUI 的 macOS 文件管理器，\n支持面包屑导航、树形侧边栏、多选和键盘操作。")
+            Text("一个基于 SwiftUI 的 macOS 文件管理器，\n支持面包屑导航、树形侧边栏、多选和键盘操作。\n本项目是 cnwutianhao/finder-explorer 的分支。")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -29,22 +29,22 @@ struct AboutView: View {
                 .foregroundColor(.secondary)
 
             HStack(spacing: 4) {
-                Link("Tyhoo Wu",
-                     destination: URL(string: "https://github.com/cnwutianhao")!)
+                Link("Syrnaxei",
+                     destination: URL(string: "https://github.com/Syrnaxei")!)
                     .font(.system(size: 10))
                     .foregroundColor(.accentColor)
                 Text("·")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                 Link("项目主页",
-                     destination: URL(string: "https://github.com/cnwutianhao/finder-explorer")!)
+                     destination: URL(string: "https://github.com/Syrnaxei/DuoXplorer")!)
                     .font(.system(size: 10))
                     .foregroundColor(.accentColor)
             }
 
             Spacer().frame(height: 8)
         }
-        .frame(width: 380, height: 320)
+        .frame(width: 380, height: 340)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 }
@@ -90,7 +90,7 @@ struct DuoXploreApp: App {
         window.title = "关于 DuoXplore"
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: AboutView())
-        window.setContentSize(NSSize(width: 380, height: 320))
+        window.setContentSize(NSSize(width: 380, height: 340))
         window.center()
         window.makeKeyAndOrderFront(nil)
         aboutWindow = window
