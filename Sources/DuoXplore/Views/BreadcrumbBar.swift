@@ -10,6 +10,7 @@ struct BreadcrumbBar: View {
     let onNavigate: (URL) -> Void
 
     @State private var isEditing = false
+    @State private var isExpanded = false
     @State private var editPath = ""
     @FocusState private var isFocused: Bool
 
@@ -29,17 +30,42 @@ struct BreadcrumbBar: View {
         ZStack {
             if isEditing {
                 editField
-            } else {
+                    .frame(minWidth: 280, maxWidth: 340, alignment: .leading)
+            } else if isExpanded {
                 let crumbs = pathComponents  // 每次 body 只计算一次
                 BreadcrumbBarView(
                     pathComponents: crumbs,
                     onNavigate: onNavigate,
                     onBlankClick: { startEdit() }
                 )
+                .frame(minWidth: 280, maxWidth: 340)
+            } else {
+                collapsedCrumb
             }
         }
-        .frame(height: 28)
-        .background(Color(nsColor: .controlBackgroundColor))
+        // 导航到新目录后回到折叠态，只显示当前目录名
+        .onChange(of: currentURL) { isExpanded = false }
+    }
+
+    /// 折叠态：只显示当前目录名，直接放在标题栏上（无玻璃底），点击展开完整路径
+    private var collapsedCrumb: some View {
+        Button {
+            isExpanded = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                    .foregroundColor(.accentColor)
+                    .font(.system(size: 12))
+                Text(currentName)
+                    .font(.system(size: 13))
+            }
+        }
+        .buttonStyle(.plain)
+        .help(currentURL.path)
+    }
+
+    private var currentName: String {
+        currentURL.path == "/" ? "Macintosh HD" : currentURL.lastPathComponent
     }
 
     // MARK: - 编辑模式
@@ -98,6 +124,7 @@ struct BreadcrumbBar: View {
 
     private func cancelEdit() {
         isEditing = false
+        isExpanded = false
         editPath = ""
     }
 
@@ -137,6 +164,7 @@ private struct BreadcrumbBarView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.hasVerticalScroller = false
         scrollView.drawsBackground = false
+        // 标题栏随系统外观，AppKit 子树不钉深色，浅色模式下按钮/箭头自动用深色文字
         container.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             container.heightAnchor.constraint(equalTo: scrollView.contentView.heightAnchor),
@@ -184,6 +212,14 @@ private struct BreadcrumbBarView: NSViewRepresentable {
                 button.layer?.cornerRadius = 4
             }
             stack.addView(button, in: .leading)
+        }
+
+        // 标题栏里宽度受限：贴右滚动，保证最后一级（当前目录）可见。
+        // 精确算出 maxX；不能用 greatestFiniteMagnitude（1.8e308 会在 clip view 换算中溢出成 NaN，内容整体不渲染）
+        DispatchQueue.main.async {
+            guard let doc = scrollView.documentView else { return }
+            let x = max(0, doc.frame.width - scrollView.contentView.bounds.width)
+            scrollView.contentView.scroll(to: NSPoint(x: x, y: 0))
         }
     }
 

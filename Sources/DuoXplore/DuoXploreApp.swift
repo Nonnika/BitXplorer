@@ -123,7 +123,8 @@ struct DuoXploreApp: App {
     }
 
     var body: some Scene {
-        Window("DuoXplore", id: "main") {
+        // 标题留空：标题栏被面包屑 + 搜索占据，不再显示文字标题
+        Window("", id: "main") {
             NavigationSplitView {
                 SidebarTreeView(
                     roots: [

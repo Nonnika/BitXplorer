@@ -54,7 +54,6 @@ struct FileListView: View {
                 .padding(.vertical, 5)
                 .padding(.horizontal, 8)
                 .background(Color.accentColor.opacity(0.08))
-                Divider()
             }
 
             // 列标题
@@ -62,8 +61,6 @@ struct FileListView: View {
                 sortOption: $sortOption,
                 sortDirection: $sortDirection
             )
-
-            Divider()
 
             // 文件列表
             if files.isEmpty && !isCreatingFolder {
@@ -105,8 +102,6 @@ struct FileListView: View {
                                             : (focusedRowIndex == index ? Color.accentColor.opacity(0.08) : Color.clear)
                                     )
                                     .contentShape(Rectangle())
-
-                                    Divider().padding(.leading, 28)
                                 }
                             }
                         }
@@ -470,20 +465,17 @@ struct HeaderRow: View {
         HStack(spacing: 0) {
             HeaderCell(title: "名称", option: .name, sortOption: $sortOption, sortDirection: $sortDirection)
                 .frame(minWidth: 200)
-            Divider().frame(height: 20)
             HeaderCell(title: "修改日期", option: .date, sortOption: $sortOption, sortDirection: $sortDirection)
                 .frame(width: 155)
-            Divider().frame(height: 20)
             HeaderCell(title: "类型", option: .kind, sortOption: $sortOption, sortDirection: $sortDirection)
                 .frame(width: 130)
-            Divider().frame(height: 20)
             HeaderCell(title: "大小", option: .size, sortOption: $sortOption, sortDirection: $sortDirection)
                 .frame(width: 100)
             Spacer()
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color.panelBackground)
     }
 }
 

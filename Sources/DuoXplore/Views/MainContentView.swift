@@ -1,5 +1,37 @@
 import SwiftUI
 
+/// 右侧文件区固定配色：深黑背景 + 浅灰分界线（不随系统外观切换）
+extension Color {
+    static let panelBackground = Color(red: 0.07, green: 0.07, blue: 0.07)
+    static let panelLine = Color(red: 0.35, green: 0.35, blue: 0.35)
+}
+
+// MARK: - Liquid Glass 适配：macOS 26+（含 27）新设计语言，旧系统回退原深色外观。
+// 系统接管的工具栏/侧栏/右键菜单随 SDK 自动换新，无需处理；这里只管自绘控件。
+extension View {
+    /// 标题栏内嵌控件底（面包屑/搜索）：玻璃胶囊 ↔ 系统外观描边框（标题栏随系统外观，不用深色面板色）
+    @ViewBuilder
+    func glassControlBackground() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            self
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor)))
+        }
+    }
+
+    /// 横条底（面包屑/状态栏）：整条玻璃 ↔ 纯深色
+    @ViewBuilder
+    func glassStripBackground() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: Rectangle())
+        } else {
+            self.background(Color.panelBackground)
+        }
+    }
+}
+
 /// 主内容视图 - 整合面包屑、搜索、文件列表、状态栏
 struct MainContentView: View {
     @Binding var currentURL: URL
@@ -41,46 +73,6 @@ struct MainContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 面包屑地址栏
-            BreadcrumbBar(currentURL: $currentURL, onNavigate: { url in
-                navigationState.push(currentURL)
-                currentURL = url
-            })
-
-            Divider()
-
-            // 工具栏：搜索
-            HStack(spacing: 8) {
-                // 搜索框
-                HStack(spacing: 4) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 12))
-                    TextField("搜索...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color(nsColor: .textBackgroundColor))
-                .cornerRadius(6)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
-
-                Spacer()
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-
-            Divider()
-
             // 文件列表（仅在首载/空目录加载时展示 spinner，避免整块视图反复重建）
             if isLoading && files.isEmpty {
                 Spacer()
@@ -109,15 +101,11 @@ struct MainContentView: View {
                 )
             }
 
-            Divider()
-
             // 状态栏
             statusBar
         }
-        .onChange(of: showHiddenFiles) { loadFiles() }
-        .onChange(of: currentURL) { loadFiles() }
-        .onChange(of: refreshTick) { loadFiles() }
-        .onAppear { loadFiles() }
+        // 工具栏放在 .environment(\.colorScheme, .dark) 之前：
+        // 标题栏随系统外观，不被详情区的强制深色污染（浅色模式下文字/玻璃才是浅色版）
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button(action: {
@@ -150,13 +138,51 @@ struct MainContentView: View {
                 .help("向上一层")
             }
 
+            // 面包屑地址栏：放进标题栏，与导航按钮同在左侧；
+            // 默认折叠成当前目录名，点击展开完整路径（无玻璃底，直接放标题栏上）
+            ToolbarItem(placement: .navigation) {
+                BreadcrumbBar(currentURL: $currentURL, onNavigate: { url in
+                    navigationState.push(currentURL)
+                    currentURL = url
+                })
+                .frame(height: 26)
+            }
+
+            // 搜索框：标题栏右侧
             ToolbarItem(placement: .primaryAction) {
-                Button(action: { loadFiles() }) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help("刷新")
+                searchField
             }
         }
+        .background(Color.panelBackground)
+        .environment(\.colorScheme, .dark)
+        .onChange(of: showHiddenFiles) { loadFiles() }
+        .onChange(of: currentURL) { loadFiles() }
+        .onChange(of: refreshTick) { loadFiles() }
+        .onAppear { loadFiles() }
+    }
+
+    /// 标题栏右侧搜索框（固定宽度，工具栏内 TextField 会无限撑开）
+    private var searchField: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+                .font(.system(size: 12))
+            TextField("搜索...", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+            if !searchText.isEmpty {
+                Button(action: { searchText = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(width: 200)
+        .frame(height: 26)
+        .glassControlBackground()
     }
 
     private var statusBar: some View {
@@ -181,7 +207,7 @@ struct MainContentView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 3)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .glassStripBackground()
     }
 
     /// 后台线程枚举目录；token 使快速连续导航时旧的慢结果被丢弃
