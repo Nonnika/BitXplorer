@@ -215,8 +215,9 @@ struct FileListView: View {
               event.window == window else { return event }
         let list = sortedFiles
 
-        // 空文件夹也允许退格返回上级
+        // 空文件夹也允许退格返回上级；根目录不能再向上（deletingLastPathComponent 会产生 /..）
         if event.keyCode == 51 {
+            guard currentURL.path != "/" else { return nil }
             onNavigate(currentURL.deletingLastPathComponent())
             return nil
         }

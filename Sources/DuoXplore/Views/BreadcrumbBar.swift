@@ -13,21 +13,15 @@ struct BreadcrumbBar: View {
     @State private var editPath = ""
     @FocusState private var isFocused: Bool
 
-    private var pathComponents: [(name: String, url: URL)] {
-        var components: [(String, URL)] = []
-        var url = currentURL
-
-        if url.path == "/" {
-            return [("Macintosh HD", URL(fileURLWithPath: "/"))]
+    /// 纯字符串切分，避免 body 求值期间的 CFURL 调用（曾导致深层路径下主线程卡顿）
+    private var pathComponents: [(name: String, path: String)] {
+        var components: [(String, String)] = []
+        var prefix = ""
+        for part in currentURL.path.split(separator: "/") {
+            prefix += "/" + part
+            components.append((String(part), prefix))
         }
-
-        while url.path != "/" && url.path != "" {
-            components.insert((url.lastPathComponent, url), at: 0)
-            url = url.deletingLastPathComponent()
-        }
-
-        components.insert(("Macintosh HD", URL(fileURLWithPath: "/")), at: 0)
-
+        components.insert(("Macintosh HD", "/"), at: 0)
         return components
     }
 
@@ -36,8 +30,9 @@ struct BreadcrumbBar: View {
             if isEditing {
                 editField
             } else {
+                let crumbs = pathComponents  // 每次 body 只计算一次
                 BreadcrumbBarView(
-                    pathComponents: pathComponents,
+                    pathComponents: crumbs,
                     onNavigate: onNavigate,
                     onBlankClick: { startEdit() }
                 )
@@ -115,7 +110,7 @@ struct BreadcrumbBar: View {
 // MARK: - AppKit 面包屑（路径段 = NSButton，空白区 = 容器 mouseDown）
 
 private struct BreadcrumbBarView: NSViewRepresentable {
-    let pathComponents: [(name: String, url: URL)]
+    let pathComponents: [(name: String, path: String)]
     let onNavigate: (URL) -> Void
     let onBlankClick: () -> Void
 
@@ -160,7 +155,7 @@ private struct BreadcrumbBarView: NSViewRepresentable {
         guard let container = scrollView.documentView as? BreadcrumbContainer,
               let stack = container.subviews.compactMap({ $0 as? NSStackView }).first else { return }
 
-        let key = pathComponents.map { $0.url.path }.joined(separator: "|")
+        let key = pathComponents.map { $0.path }.joined(separator: "|")
         guard key != coordinator.lastPathKey else { return }
         coordinator.lastPathKey = key
 
@@ -181,8 +176,8 @@ private struct BreadcrumbBarView: NSViewRepresentable {
             )
             button.isBordered = false
             button.font = .systemFont(ofSize: 13)
-            button.identifier = NSUserInterfaceItemIdentifier(component.url.absoluteString)
-            button.toolTip = component.url.path
+            button.identifier = NSUserInterfaceItemIdentifier(component.path)
+            button.toolTip = component.path
             if index == pathComponents.count - 1 {
                 button.wantsLayer = true
                 button.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
@@ -198,9 +193,8 @@ private struct BreadcrumbBarView: NSViewRepresentable {
         var lastPathKey = ""
 
         @objc func crumbClicked(_ sender: NSButton) {
-            guard let id = sender.identifier?.rawValue,
-                  let url = URL(string: id) else { return }
-            onNavigate?(url)
+            guard let path = sender.identifier?.rawValue else { return }
+            onNavigate?(URL(fileURLWithPath: path))
         }
     }
 
