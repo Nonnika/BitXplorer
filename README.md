@@ -42,20 +42,6 @@
 - **关于窗口** — 显示版本号、作者和项目主页链接
 - **版本管理** — AppVersion.swift 统一版本号（发版时手动递增），窗口标题和打包产物自动同步
 
-## 下载
-
-从 [Releases](https://github.com/cnwutianhao/finder-explorer/releases) 下载预编译版本，选择对应架构：
-
-| 下载 | 架构 | 适用 |
-|------|------|------|
-| [DuoXplore_1.2.0-universal.dmg](https://github.com/cnwutianhao/finder-explorer/releases/download/1.2.0/DuoXplore_1.2.0-universal.dmg) | Universal (arm64 + x86_64) | **推荐**，不确定芯片选这个 |
-| [DuoXplore_1.2.0-arm64.dmg](https://github.com/cnwutianhao/finder-explorer/releases/download/1.2.0/DuoXplore_1.2.0-arm64.dmg) | arm64 | Apple Silicon (M1/M2/M3/M4) |
-| [DuoXplore_1.2.0-amd64.dmg](https://github.com/cnwutianhao/finder-explorer/releases/download/1.2.0/DuoXplore_1.2.0-amd64.dmg) | x86_64 | Intel Mac |
-
-> 查看芯片类型：点左上角  → "关于本机" → 看"芯片"一行。
-
-下载后双击打开 `.dmg`，把 `DuoXplore.app` 拖入 `Applications` 快捷方式即可安装。
-
 ## 系统
 
 - macOS 14.0 (Sonoma) 或更高版本
@@ -135,14 +121,6 @@ DuoXplore/
         ├── FileListView.swift     # 文件列表 + 右键菜单
         └── SidebarTreeView.swift  # 侧边栏目录树
 ```
-
-## 技术栈
-
-- **SwiftUI** — 原生声明式 UI
-- **AppKit** — `NSWorkspace` 获取文件图标、`NSEvent` 键盘监听
-- **SF Symbols** — 系统图标
-- **Swift 6.0** — 结构化并发 (`async/await`)、`@MainActor`
-
 ## 许可
 
 MIT

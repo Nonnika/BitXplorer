@@ -2,7 +2,9 @@ import Foundation
 
 /// 文件/文件夹的数据模型
 struct FileItem: Identifiable, Equatable {
-    let id = UUID()
+    /// 以 URL 作为行身份：刷新后 LazyVStack 按 URL 复用行，滚动位置不重置
+    var id: URL { url }
+
     let url: URL
     let name: String
     let isDirectory: Bool
@@ -26,20 +28,36 @@ struct FileItem: Identifiable, Equatable {
         self.fileExtension = url.pathExtension
     }
 
-    /// 格式化文件大小
-    var formattedSize: String {
-        guard let size = size, !isDirectory else { return "--" }
+    private static let byteFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: size)
+        return formatter
+    }()
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
+
+    /// 格式化字节数（状态栏也复用，避免每次渲染新建 formatter）
+    @MainActor
+    static func bytes(_ count: Int64) -> String {
+        byteFormatter.string(fromByteCount: count)
+    }
+
+    /// 格式化文件大小
+    @MainActor
+    var formattedSize: String {
+        guard let size = size, !isDirectory else { return "--" }
+        return Self.bytes(size)
     }
 
     /// 格式化修改日期
+    @MainActor
     var formattedDate: String {
         guard let date = modificationDate else { return "--" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter.string(from: date)
+        return Self.dateFormatter.string(from: date)
     }
 
     /// 文件类型描述
@@ -47,12 +65,6 @@ struct FileItem: Identifiable, Equatable {
         if isDirectory { return "文件夹" }
         if fileExtension.isEmpty { return "文件" }
         return fileExtension.uppercased() + " 文件"
-    }
-
-    /// Finder 文件类型标签 (UTI)
-    var utiType: String {
-        if isDirectory { return "public.folder" }
-        return (try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier) ?? "public.data"
     }
 
     static func == (lhs: FileItem, rhs: FileItem) -> Bool {
