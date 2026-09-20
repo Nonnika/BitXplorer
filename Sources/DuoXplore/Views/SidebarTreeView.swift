@@ -5,9 +5,18 @@ struct SidebarTreeView: View {
     let roots: [TreeNode]
     let onSelect: (URL) -> Void
 
+    @State private var selectedURL: URL?
+
     var body: some View {
         List(roots) { node in
-            SidebarTreeNodeRow(node: node, onSelect: onSelect)
+            SidebarTreeNodeRow(
+                node: node,
+                onSelect: { url in
+                    selectedURL = url
+                    onSelect(url)
+                },
+                selectedURL: selectedURL
+            )
         }
         .listStyle(.sidebar)
     }
@@ -16,57 +25,74 @@ struct SidebarTreeView: View {
 struct SidebarTreeNodeRow: View {
     @ObservedObject var node: TreeNode
     let onSelect: (URL) -> Void
+    let selectedURL: URL?
+
+    private var isSelected: Bool { node.url == selectedURL }
+
+    /// 仿 Finder 的灰色选中高亮；用 listRowBackground 铺满整行：
+    /// 左侧覆盖展开箭头，上下与相邻行相接
+    private var rowHighlight: some View {
+        RoundedRectangle(cornerRadius: 5)
+            .fill(Color.primary.opacity(isSelected ? 0.12 : 0))
+    }
 
     var body: some View {
-        if node.children == nil && node.isDirectory {
-            // 尚未加载子节点
-            HStack {
-                Image(systemName: "folder")
-                    .foregroundColor(.accentColor)
-                Text(node.name)
-                    .font(.system(size: 13))
-                Spacer()
+        Group {
+            if node.children == nil && node.isDirectory {
+                // 尚未加载子节点
+                HStack {
+                    Image(systemName: "folder")
+                        .foregroundColor(.accentColor)
+                    Text(node.name)
+                        .font(.system(size: 13))
+                    Spacer()
 
-                if node.isLoading {
-                    ProgressView()
-                        .scaleEffect(0.5)
-                        .frame(width: 12, height: 12)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { onSelect(node.url) }
-            .task {
-                await node.loadChildren()
-            }
-        } else if let children = node.children, !children.isEmpty {
-            // 有子文件夹
-            DisclosureGroup(
-                content: {
-                    ForEach(children) { child in
-                        SidebarTreeNodeRow(node: child, onSelect: onSelect)
+                    if node.isLoading {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                            .frame(width: 12, height: 12)
                     }
-                },
-                label: {
-                    HStack {
-                        Image(systemName: "folder")
-                            .foregroundColor(.accentColor)
-                        Text(node.name)
-                            .font(.system(size: 13))
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { onSelect(node.url) }
                 }
-            )
-        } else {
-            // 空文件夹
-            HStack {
-                Image(systemName: "folder")
-                    .foregroundColor(.secondary)
-                Text(node.name)
-                    .font(.system(size: 13))
+                .contentShape(Rectangle())
+                .padding(.vertical, 3)
+                .onTapGesture { onSelect(node.url) }
+                .task {
+                    await node.loadChildren()
+                }
+            } else if let children = node.children, !children.isEmpty {
+                // 有子文件夹
+                DisclosureGroup(
+                    content: {
+                        ForEach(children) { child in
+                            SidebarTreeNodeRow(node: child, onSelect: onSelect, selectedURL: selectedURL)
+                        }
+                    },
+                    label: {
+                        HStack {
+                            Image(systemName: "folder")
+                                .foregroundColor(.accentColor)
+                            Text(node.name)
+                                .font(.system(size: 13))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .padding(.vertical, 3)
+                        .onTapGesture { onSelect(node.url) }
+                    }
+                )
+            } else {
+                // 空文件夹
+                HStack {
+                    Image(systemName: "folder")
+                        .foregroundColor(.secondary)
+                    Text(node.name)
+                        .font(.system(size: 13))
+                }
+                .contentShape(Rectangle())
+                .padding(.vertical, 3)
+                .onTapGesture { onSelect(node.url) }
             }
-            .contentShape(Rectangle())
-            .onTapGesture { onSelect(node.url) }
         }
+        .listRowBackground(rowHighlight)
     }
 }
