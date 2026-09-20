@@ -23,3 +23,7 @@ xcuserdata/
 *.swp
 *.swo
 *~
+
+# Agents 文件
+*.md
+!README.md
