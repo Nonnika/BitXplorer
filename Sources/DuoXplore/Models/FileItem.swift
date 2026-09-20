@@ -28,13 +28,13 @@ struct FileItem: Identifiable, Equatable {
         self.fileExtension = url.pathExtension
     }
 
-    private static let byteFormatter: ByteCountFormatter = {
+    @MainActor private static let byteFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter
     }()
 
-    private static let dateFormatter: DateFormatter = {
+    @MainActor private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter

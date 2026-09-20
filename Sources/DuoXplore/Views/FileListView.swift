@@ -22,6 +22,7 @@ struct FileListView: View {
     @State private var focusedRowIndex: Int? = nil
     @State private var isCreatingFolder = false
     @State private var newFolderText = "新建文件夹"
+    @State private var keyboardMonitor: Any?
     @FocusState private var newFolderFieldFocused: Bool
 
     var body: some View {
@@ -74,7 +75,6 @@ struct FileListView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contextMenu { blankAreaContextMenu }
-                .onAppear { installKeyboardMonitor() }
             } else {
                 VStack {
                     ScrollViewReader { proxy in
@@ -114,12 +114,13 @@ struct FileListView: View {
                         .onTapGesture { selectedURLs = []; focusedRowIndex = nil }
                     }
                 }
-                .onAppear { installKeyboardMonitor() }
                 .onChange(of: files.count) { _, count in
                     if let idx = focusedRowIndex, idx >= count { focusedRowIndex = nil }
                 }
             }
         }
+        .onAppear { installKeyboardMonitor() }
+        .onDisappear { removeKeyboardMonitor() }
     }
 
     // MARK: - 内联重命名行
@@ -127,7 +128,7 @@ struct FileListView: View {
     private func renameInlineRow(file: FileItem) -> some View {
         HStack(spacing: 0) {
             HStack(spacing: 6) {
-                Image(nsImage: iconForFile(file))
+                Image(nsImage: IconCache.icon(for: file.url))
                     .resizable().frame(width: 20, height: 20)
                 TextField("", text: $renameText)
                     .textFieldStyle(.plain)
@@ -148,12 +149,6 @@ struct FileListView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(Color.accentColor.opacity(0.12))
-    }
-
-    private func iconForFile(_ file: FileItem) -> NSImage {
-        let icon = NSWorkspace.shared.icon(forFile: file.url.path)
-        icon.size = NSSize(width: 20, height: 20)
-        return icon
     }
 
     // MARK: - 排序
@@ -204,12 +199,12 @@ struct FileListView: View {
 
     // MARK: - 键盘事件监控
 
-    @State private var keyboardInstalled = false
-
     private func handleKey(event: NSEvent) -> NSEvent? {
         // 焦点在任何文本输入框（路径编辑/搜索/重命名/新建文件夹）时，
-        // 退格/回车/方向键交给输入框原生处理，不做键盘导航劫持
-        if NSApp.keyWindow?.firstResponder is NSTextView { return event }
+        // 退格/回车/方向键交给输入框原生处理，不做键盘导航劫持；
+        // 焦点在侧栏（SwiftUI List 由 NSTableView 承载）时同样放行
+        if let responder = NSApp.keyWindow?.firstResponder,
+           responder is NSTextView || responder is NSTableView { return event }
         guard !isRenaming, !isCreatingFolder,
               let window = NSApp.keyWindow,
               event.window == window else { return event }
@@ -264,10 +259,16 @@ struct FileListView: View {
         }
     }
 
-    func installKeyboardMonitor() {
-        guard !keyboardInstalled else { return }
-        keyboardInstalled = true
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handleKey)
+    private func installKeyboardMonitor() {
+        guard keyboardMonitor == nil else { return }
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handleKey)
+    }
+
+    private func removeKeyboardMonitor() {
+        if let monitor = keyboardMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyboardMonitor = nil
+        }
     }
 
     /// 开始重命名（从右键菜单或键盘触发）
@@ -287,7 +288,9 @@ struct FileListView: View {
             return
         }
         do {
-            _ = try fsService.renameItem(at: target, to: renameText.trimmingCharacters(in: .whitespaces))
+            let newURL = try fsService.renameItem(at: target, to: renameText.trimmingCharacters(in: .whitespaces))
+            selectedURLs.remove(target)
+            selectedURLs.insert(newURL)
             onRefresh()
         } catch {
             print("重命名失败: \(error)")
@@ -402,6 +405,22 @@ struct FileListView: View {
     }
 }
 
+// MARK: - 图标缓存（NSWorkspace.icon(forFile:) 涉及磁盘查找，不能每行每次渲染都调）
+
+@MainActor
+enum IconCache {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    static func icon(for url: URL) -> NSImage {
+        let key = url.path as NSString
+        if let hit = cache.object(forKey: key) { return hit }
+        let image = NSWorkspace.shared.icon(forFile: url.path)
+        image.size = NSSize(width: 20, height: 20)
+        cache.setObject(image, forKey: key)
+        return image
+    }
+}
+
 // MARK: - 点击检测（无单击延迟）
 
 struct ClickDetector: NSViewRepresentable {
@@ -503,7 +522,7 @@ struct FileRow: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 6) {
-                Image(nsImage: icon)
+                Image(nsImage: IconCache.icon(for: file.url))
                     .resizable().frame(width: 20, height: 20)
                 Text(file.name)
                     .font(.system(size: 13)).lineLimit(1)
@@ -532,11 +551,5 @@ struct FileRow: View {
             // 改用 AppKit mouseDown + clickCount 即时区分单击选中与双击打开
             ClickDetector(onClick: onClick, onDoubleClick: onDoubleClick)
         }
-    }
-
-    private var icon: NSImage {
-        let i = NSWorkspace.shared.icon(forFile: file.url.path)
-        i.size = NSSize(width: 20, height: 20)
-        return i
     }
 }

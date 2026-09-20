@@ -60,6 +60,8 @@ struct DuoXploreApp: App {
     @State private var clipboardURLs: [URL] = []
     @State private var clipboardIsCut = false
     @State private var showHiddenFiles = false
+    /// App 级操作（粘贴/废纸篓）完成后 +1，MainContentView 监听后重载列表
+    @State private var refreshTick = 0
 
     private let fsService = FileSystemService()
 
@@ -71,13 +73,14 @@ struct DuoXploreApp: App {
             clipboardURLs = []
             clipboardIsCut = false
         }
-        files = (try? fsService.listDirectory(at: currentURL, showHidden: showHiddenFiles)) ?? []
+        refreshTick += 1
     }
 
     @State private var aboutWindow: NSWindow?
 
     private func showAboutWindow() {
-        if let existing = aboutWindow, existing.isVisible {
+        // isReleasedWhenClosed = false，窗口对象常驻，直接复用避免每次新建泄漏
+        if let existing = aboutWindow {
             existing.makeKeyAndOrderFront(nil)
             return
         }
@@ -130,10 +133,9 @@ struct DuoXploreApp: App {
                         TreeNode(url: URL(fileURLWithPath: "/"), name: "Macintosh HD"),
                     ],
                     onSelect: { url in
+                        // 只改 currentURL，列表加载统一由 MainContentView.onChange 触发
                         navigationState.push(currentURL)
                         currentURL = url
-                        files = (try? fsService.listDirectory(at: url, showHidden: showHiddenFiles)) ?? []
-                        selectedURLs = []
                     }
                 )
                 .frame(minWidth: 200)
@@ -149,7 +151,8 @@ struct DuoXploreApp: App {
                     clipboardIsCut: $clipboardIsCut,
                     showHiddenFiles: $showHiddenFiles,
                     navigationState: navigationState,
-                    fsService: fsService
+                    fsService: fsService,
+                    refreshTick: refreshTick
                 )
             }
             .navigationSplitViewStyle(.balanced)
@@ -203,9 +206,8 @@ struct DuoXploreApp: App {
                 Divider()
 
                 Button("移到废纸篓") {
-                    let urls = selectedURLs.isEmpty ? [] : Array(selectedURLs)
-                    fsService.moveToTrash(urls)
-                    files = (try? fsService.listDirectory(at: currentURL, showHidden: showHiddenFiles)) ?? []
+                    fsService.moveToTrash(Array(selectedURLs))
+                    refreshTick += 1
                 }
                 .keyboardShortcut(.delete, modifiers: [])
             }

@@ -22,15 +22,15 @@ final class TreeNode: Identifiable, ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        let keys: [URLResourceKey] = [.isDirectoryKey]
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles]
-        ) else {
-            children = []
-            return
-        }
+        let url = self.url
+        let contents = await Task.detached(priority: .userInitiated) { () -> [URL] in
+            let keys: [URLResourceKey] = [.isDirectoryKey]
+            return (try? FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: keys,
+                options: [.skipsHiddenFiles]
+            )) ?? []
+        }.value
 
         children = contents
             .filter { !$0.lastPathComponent.hasPrefix(".") }

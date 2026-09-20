@@ -12,17 +12,19 @@ struct MainContentView: View {
     @Binding var showHiddenFiles: Bool
     let navigationState: NavigationState
     let fsService: FileSystemService
+    /// App 级操作（粘贴/废纸篓）完成后递增，触发重新加载
+    let refreshTick: Int
 
     @State private var isLoading = false
+    @State private var loadToken = 0
     @State private var searchText = ""
     @State private var isRenaming = false
     @State private var renameTarget: URL?
     @State private var renameText = ""
-    @State private var isCreatingFolder = false
-    @State private var newFolderText = ""
     @State private var watcherSource: DispatchSourceFileSystemObject?
+    @State private var watcherPath: String?
+    @State private var watcherDebounce: DispatchWorkItem?
     @FocusState private var renameFieldFocused: Bool
-    @FocusState private var newFolderFieldFocused: Bool
 
     /// 搜索过滤后的文件列表
     var displayedFiles: [FileItem] {
@@ -43,7 +45,6 @@ struct MainContentView: View {
             BreadcrumbBar(currentURL: $currentURL, onNavigate: { url in
                 navigationState.push(currentURL)
                 currentURL = url
-                loadFiles()
             })
 
             Divider()
@@ -80,8 +81,8 @@ struct MainContentView: View {
 
             Divider()
 
-            // 文件列表
-            if isLoading {
+            // 文件列表（仅在首载/空目录加载时展示 spinner，避免整块视图反复重建）
+            if isLoading && files.isEmpty {
                 Spacer()
                 ProgressView("正在加载...")
                 Spacer()
@@ -98,7 +99,6 @@ struct MainContentView: View {
                     onNavigate: { url in
                         navigationState.push(currentURL)
                         currentURL = url
-                        loadFiles()
                     },
                     fsService: fsService,
                     isRenaming: $isRenaming,
@@ -115,14 +115,14 @@ struct MainContentView: View {
             statusBar
         }
         .onChange(of: showHiddenFiles) { loadFiles() }
+        .onChange(of: currentURL) { loadFiles() }
+        .onChange(of: refreshTick) { loadFiles() }
         .onAppear { loadFiles() }
-        .onChange(of: currentURL) { startWatcher() }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button(action: {
                     if let url = navigationState.goBack(from: currentURL) {
                         currentURL = url
-                        loadFiles()
                     }
                 }) {
                     Image(systemName: "chevron.left")
@@ -133,7 +133,6 @@ struct MainContentView: View {
                 Button(action: {
                     if let url = navigationState.goForward(from: currentURL) {
                         currentURL = url
-                        loadFiles()
                     }
                 }) {
                     Image(systemName: "chevron.right")
@@ -142,10 +141,8 @@ struct MainContentView: View {
                 .help("前进")
 
                 Button(action: {
-                    let parent = currentURL.deletingLastPathComponent()
                     navigationState.push(currentURL)
-                    currentURL = parent
-                    loadFiles()
+                    currentURL = currentURL.deletingLastPathComponent()
                 }) {
                     Image(systemName: "arrow.up")
                 }
@@ -164,18 +161,9 @@ struct MainContentView: View {
 
     private var statusBar: some View {
         HStack {
-            let total = files.count
-            let displayed = displayedFiles.count
-
-            Text("\(total) 个项目")
+            Text("\(files.count) 个项目")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
-
-            if searchText.isEmpty && displayed != total {
-                Text("(共 \(total) 个)")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
 
             if selectedStats.count > 0 {
                 Text("  |  已选 \(selectedStats.count) 个")
@@ -183,7 +171,7 @@ struct MainContentView: View {
                     .foregroundColor(.accentColor)
 
                 if selectedStats.size > 0 {
-                    Text(ByteCountFormatter().string(fromByteCount: selectedStats.size))
+                    Text(FileItem.bytes(selectedStats.size))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -196,51 +184,37 @@ struct MainContentView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    private func startCreateFolder() {
-        newFolderText = "新建文件夹"
-        isCreatingFolder = true
-        newFolderFieldFocused = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            newFolderFieldFocused = true
-        }
-    }
-
-    func commitCreateFolder() {
-        guard !newFolderText.trimmingCharacters(in: .whitespaces).isEmpty,
-              fsService.isValidFileName(newFolderText) else {
-            isCreatingFolder = false
-            return
-        }
-        let finalName = newFolderText.trimmingCharacters(in: .whitespaces)
-        do {
-            _ = try fsService.createFolder(at: currentURL, name: finalName)
-            loadFiles()
-        } catch {
-            print("创建文件夹失败: \(error)")
-        }
-        isCreatingFolder = false
-    }
-
+    /// 后台线程枚举目录；token 使快速连续导航时旧的慢结果被丢弃
     private func loadFiles() {
+        loadToken += 1
+        let token = loadToken
+        let url = currentURL
+        let showHidden = showHiddenFiles
+        let service = fsService
         isLoading = true
-        do {
-            files = try fsService.listDirectory(at: currentURL, showHidden: showHiddenFiles)
-        } catch {
-            files = []
-            print("加载目录失败: \(error)")
+        Task {
+            let items = (try? await Task.detached(priority: .userInitiated) {
+                try service.listDirectory(at: url, showHidden: showHidden)
+            }.value) ?? []
+            guard token == loadToken else { return }
+            files = items
+            selectedURLs = []
+            searchText = ""
+            isLoading = false
+            startWatcher()
         }
-        selectedURLs = []
-        searchText = ""
-        isLoading = false
-        startWatcher()
     }
 
     /// 监视当前目录变化，外部文件新增/删除时自动刷新列表
     private func startWatcher() {
+        let path = currentURL.path
+        guard watcherPath != path else { return }
+        watcherDebounce?.cancel()
         watcherSource?.cancel()
         watcherSource = nil
+        watcherPath = path
 
-        let fd = open(currentURL.path, O_EVTONLY)
+        let fd = open(path, O_EVTONLY)
         guard fd >= 0 else { return }
 
         let source = DispatchSource.makeFileSystemObjectSource(
@@ -249,21 +223,28 @@ struct MainContentView: View {
             queue: .main
         )
         source.setEventHandler { [self] in
-            do {
-                let updated = try fsService.listDirectory(at: currentURL, showHidden: showHiddenFiles)
-                if updated.map(\.url) != files.map(\.url) {
-                    withAnimation(.easeInOut(duration: 0.1)) {
-                        files = updated
+            // ponytail: 150ms 防抖合并写入风暴（构建目录、日志），极端乱序下可能应用旧快照，
+            // 靠 url 匹配 + 内容 diff 兜底；如需严格一致改用串行 single-flight
+            watcherDebounce?.cancel()
+            let work = DispatchWorkItem { [self] in
+                let url = currentURL
+                let showHidden = showHiddenFiles
+                let service = fsService
+                Task.detached(priority: .utility) {
+                    let updated = (try? service.listDirectory(at: url, showHidden: showHidden)) ?? []
+                    await MainActor.run {
+                        guard url == currentURL, updated.map(\.url) != files.map(\.url) else { return }
+                        withAnimation(.easeInOut(duration: 0.1)) {
+                            files = updated
+                        }
                     }
                 }
-            } catch {
-                // 目录可能已被删除，忽略
             }
+            watcherDebounce = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
         }
         source.setCancelHandler { close(fd) }
         source.resume()
         watcherSource = source
     }
-
-    func refresh() { loadFiles() }
 }
