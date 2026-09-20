@@ -96,6 +96,14 @@ struct DuoXploreApp: App {
         aboutWindow = window
     }
 
+    /// 启动时主动触发系统对常用目录的文件访问授权（TCC），
+    /// 避免首次进入「文档/桌面/下载」时才弹授权框打断操作
+    private func requestFileAccessAtLaunch() {
+        for name in ["Documents", "Desktop", "Downloads"] {
+            _ = try? FileManager.default.contentsOfDirectory(atPath: NSHomeDirectory() + "/\(name)")
+        }
+    }
+
     private func setAppIcon() {
         guard let bundleURL = Bundle.main.url(forResource: "DuoXplore_DuoXplore", withExtension: "bundle"),
               let bundle = Bundle(url: bundleURL) else {
@@ -150,6 +158,7 @@ struct DuoXploreApp: App {
                 setAppIcon()
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
+                requestFileAccessAtLaunch()
                 print("[DuoXplore] 窗口已显示")
             }
         }

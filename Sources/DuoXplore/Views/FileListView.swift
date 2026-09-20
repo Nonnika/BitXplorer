@@ -388,6 +388,45 @@ struct FileListView: View {
     }
 }
 
+// MARK: - 点击检测（无单击延迟）
+
+struct ClickDetector: NSViewRepresentable {
+    let onClick: () -> Void
+    let onDoubleClick: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        DetectorView(onClick: onClick, onDoubleClick: onDoubleClick)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? DetectorView)?.update(onClick: onClick, onDoubleClick: onDoubleClick)
+    }
+
+    private final class DetectorView: NSView {
+        var onClick: () -> Void
+        var onDoubleClick: () -> Void
+
+        init(onClick: @escaping () -> Void, onDoubleClick: @escaping () -> Void) {
+            self.onClick = onClick
+            self.onDoubleClick = onDoubleClick
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        func update(onClick: @escaping () -> Void, onDoubleClick: @escaping () -> Void) {
+            self.onClick = onClick
+            self.onDoubleClick = onDoubleClick
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount >= 2 { onDoubleClick() } else { onClick() }
+        }
+
+        override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+    }
+}
+
 // MARK: - 列标题行
 
 struct HeaderRow: View {
@@ -474,9 +513,11 @@ struct FileRow: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .opacity(isCut ? 0.45 : 1.0)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) { onDoubleClick() }
-        .onTapGesture(count: 1) { onClick() }
+        .overlay {
+            // SwiftUI 的 onTapGesture 单双击并存时会延迟单击回调（等待双击消歧），
+            // 改用 AppKit mouseDown + clickCount 即时区分单击选中与双击打开
+            ClickDetector(onClick: onClick, onDoubleClick: onDoubleClick)
+        }
     }
 
     private var icon: NSImage {
