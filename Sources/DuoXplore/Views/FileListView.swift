@@ -74,6 +74,7 @@ struct FileListView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contextMenu { blankAreaContextMenu }
+                .onAppear { installKeyboardMonitor() }
             } else {
                 VStack {
                     ScrollViewReader { proxy in
@@ -114,6 +115,9 @@ struct FileListView: View {
                     }
                 }
                 .onAppear { installKeyboardMonitor() }
+                .onChange(of: files.count) { count in
+                    if let idx = focusedRowIndex, idx >= count { focusedRowIndex = nil }
+                }
             }
         }
     }
@@ -203,10 +207,19 @@ struct FileListView: View {
     @State private var keyboardInstalled = false
 
     private func handleKey(event: NSEvent) -> NSEvent? {
+        // 焦点在任何文本输入框（路径编辑/搜索/重命名/新建文件夹）时，
+        // 退格/回车/方向键交给输入框原生处理，不做键盘导航劫持
+        if NSApp.keyWindow?.firstResponder is NSTextView { return event }
         guard !isRenaming, !isCreatingFolder,
               let window = NSApp.keyWindow,
               event.window == window else { return event }
         let list = sortedFiles
+
+        // 空文件夹也允许退格返回上级
+        if event.keyCode == 51 {
+            onNavigate(currentURL.deletingLastPathComponent())
+            return nil
+        }
         guard !list.isEmpty else { return event }
 
         switch event.keyCode {
@@ -221,22 +234,22 @@ struct FileListView: View {
             }
             return nil
         case 126: // 上箭头
-            if let idx = focusedRowIndex, idx > 0 {
-                focusedRowIndex = idx - 1
-                if !event.modifierFlags.contains(.shift) { selectedURLs = [list[focusedRowIndex!].url] }
-                else { selectedURLs.insert(list[focusedRowIndex!].url) }
+            if let idx = focusedRowIndex {
+                // 索引可能因目录切换/搜索过滤而失效，钳制到当前列表范围
+                let target = min(idx - 1, list.count - 1)
+                if target >= 0 {
+                    focusedRowIndex = target
+                    if !event.modifierFlags.contains(.shift) { selectedURLs = [list[target].url] }
+                    else { selectedURLs.insert(list[target].url) }
+                }
             }
             return nil
         case 36: // 回车
-            if let idx = focusedRowIndex {
+            if let idx = focusedRowIndex, idx < list.count {
                 let file = list[idx]
                 if file.isDirectory { onNavigate(file.url) }
                 else { fsService.openFile(file.url) }
             }
-            return nil
-        case 51: // Backspace
-            let parent = currentURL.deletingLastPathComponent()
-            onNavigate(parent)
             return nil
         case 120: // F2
             if let url = selectedURLs.first, selectedURLs.count == 1 {
