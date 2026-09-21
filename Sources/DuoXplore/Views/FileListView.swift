@@ -463,15 +463,18 @@ struct HeaderRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            // 名称列吃掉全部剩余空间，保证后面各列位置固定、与数据行对齐
             HeaderCell(title: "名称", option: .name, sortOption: $sortOption, sortDirection: $sortDirection)
-                .frame(minWidth: 200)
+                .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
             HeaderCell(title: "修改日期", option: .date, sortOption: $sortOption, sortDirection: $sortDirection)
                 .frame(width: 155)
+                .padding(.leading, 12)
             HeaderCell(title: "类型", option: .kind, sortOption: $sortOption, sortDirection: $sortDirection)
                 .frame(width: 130)
+                .padding(.leading, 12)
             HeaderCell(title: "大小", option: .size, sortOption: $sortOption, sortDirection: $sortDirection)
-                .frame(width: 100)
-            Spacer()
+                .frame(width: 100, alignment: .trailing)
+                .padding(.trailing, 20)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -513,13 +516,15 @@ struct FileRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            // 名称列 maxWidth: .infinity 吸收剩余宽度，长文件名截断省略，
+            // 后面固定宽度的列才能在每一行都落在同一位置
             HStack(spacing: 6) {
                 Image(nsImage: IconCache.icon(for: file.url))
                     .resizable().frame(width: 20, height: 20)
                 Text(file.name)
                     .font(.system(size: 13)).lineLimit(1)
             }
-            .frame(minWidth: 200, alignment: .leading)
+            .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
 
             Text(file.formattedDate)
                 .font(.system(size: 12)).foregroundColor(.secondary)
@@ -532,8 +537,6 @@ struct FileRow: View {
             Text(file.isDirectory ? "--" : file.formattedSize)
                 .font(.system(size: 12)).foregroundColor(.secondary)
                 .frame(width: 100, alignment: .trailing).padding(.trailing, 20)
-
-            Spacer()
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)

@@ -1,35 +1,8 @@
 import SwiftUI
 
-/// 右侧文件区固定配色：深黑背景 + 浅灰分界线（不随系统外观切换）
+/// 右侧文件区固定配色：深灰背景 #1D1D1E（不随系统外观切换）
 extension Color {
-    static let panelBackground = Color(red: 0.07, green: 0.07, blue: 0.07)
-    static let panelLine = Color(red: 0.35, green: 0.35, blue: 0.35)
-}
-
-// MARK: - Liquid Glass 适配：macOS 26+（含 27）新设计语言，旧系统回退原深色外观。
-// 系统接管的工具栏/侧栏/右键菜单随 SDK 自动换新，无需处理；这里只管自绘控件。
-extension View {
-    /// 标题栏内嵌控件底（面包屑/搜索）：玻璃胶囊 ↔ 系统外观描边框（标题栏随系统外观，不用深色面板色）
-    @ViewBuilder
-    func glassControlBackground() -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        } else {
-            self
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor)))
-        }
-    }
-
-    /// 横条底（面包屑/状态栏）：整条玻璃 ↔ 纯深色
-    @ViewBuilder
-    func glassStripBackground() -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular, in: Rectangle())
-        } else {
-            self.background(Color.panelBackground)
-        }
-    }
+    static let panelBackground = Color(red: 29 / 255, green: 29 / 255, blue: 30 / 255)
 }
 
 /// 主内容视图 - 整合面包屑、搜索、文件列表、状态栏
@@ -57,6 +30,9 @@ struct MainContentView: View {
     @State private var watcherPath: String?
     @State private var watcherDebounce: DispatchWorkItem?
     @FocusState private var renameFieldFocused: Bool
+    /// 搜索展开态与输入框焦点
+    @State private var isSearching = false
+    @FocusState private var searchFocused: Bool
 
     /// 搜索过滤后的文件列表
     var displayedFiles: [FileItem] {
@@ -107,39 +83,9 @@ struct MainContentView: View {
         // 工具栏放在 .environment(\.colorScheme, .dark) 之前：
         // 标题栏随系统外观，不被详情区的强制深色污染（浅色模式下文字/玻璃才是浅色版）
         .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                Button(action: {
-                    if let url = navigationState.goBack(from: currentURL) {
-                        currentURL = url
-                    }
-                }) {
-                    Image(systemName: "chevron.left")
-                }
-                .disabled(!navigationState.canGoBack())
-                .help("后退")
-
-                Button(action: {
-                    if let url = navigationState.goForward(from: currentURL) {
-                        currentURL = url
-                    }
-                }) {
-                    Image(systemName: "chevron.right")
-                }
-                .disabled(!navigationState.canGoForward())
-                .help("前进")
-
-                Button(action: {
-                    navigationState.push(currentURL)
-                    currentURL = currentURL.deletingLastPathComponent()
-                }) {
-                    Image(systemName: "arrow.up")
-                }
-                .disabled(currentURL.path == "/")
-                .help("向上一层")
-            }
-
             // 面包屑地址栏：放进标题栏，与导航按钮同在左侧；
-            // 默认折叠成当前目录名，点击展开完整路径（无玻璃底，直接放标题栏上）
+            // 默认折叠成当前目录名，点击展开完整路径。
+            // sharedBackgroundVisibility(.hidden) 退出工具栏的共享玻璃底（新设计默认给每个 item 套玻璃）
             ToolbarItem(placement: .navigation) {
                 BreadcrumbBar(currentURL: $currentURL, onNavigate: { url in
                     navigationState.push(currentURL)
@@ -147,12 +93,92 @@ struct MainContentView: View {
                 })
                 .frame(height: 26)
             }
+            .sharedBackgroundVisibility(.hidden)
 
-            // 搜索框：标题栏右侧
+            // 搜索：默认一颗玻璃放大镜按钮（与返回/前进同材质），点击展开成搜索框，
+            // 再点或 Esc 收回。macOS 的 .searchable 没有展开交互（那是 iOS 行为），故自绘。
             ToolbarItem(placement: .primaryAction) {
-                searchField
+                HStack(spacing: 4) {
+                    Button {
+                        if isSearching {
+                            collapseSearch()
+                        } else {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isSearching = true }
+                            searchFocused = true
+                        }
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14, weight: .medium))
+                            .frame(width: 26, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isSearching ? "关闭搜索" : "搜索")
+
+                    if isSearching {
+                        TextField("搜索...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .frame(width: 140)
+                            .focused($searchFocused)
+                            .onExitCommand { collapseSearch() }
+
+                        if !searchText.isEmpty {
+                            Button(action: { searchText = "" }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .glassEffect(.regular.interactive(), in: Capsule())
             }
         }
+        // 返回/前进：一颗精确的 Capsule 玻璃罩住两个按钮（glassEffectUnion 的液态过渡
+        // 在两颗圆片之间会鼓包，弃用；.interactive() 玻璃的系统悬停/按压高亮保留）
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                HStack(spacing: 0) {
+                    Button(action: {
+                        if let url = navigationState.goBack(from: currentURL) {
+                            currentURL = url
+                        }
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 14, weight: .medium))
+                            .frame(width: 30, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!navigationState.canGoBack())
+                    .help("后退")
+
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.15))
+                        .frame(width: 1, height: 18)
+
+                    Button(action: {
+                        if let url = navigationState.goForward(from: currentURL) {
+                            currentURL = url
+                        }
+                    }) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 14, weight: .medium))
+                            .frame(width: 30, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!navigationState.canGoForward())
+                    .help("前进")
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .glassEffect(.regular.interactive(), in: Capsule())
+            }
+        }
+        // 搜索：系统原生工具栏搜索（放大镜按钮点击丝滑展开，玻璃风格系统全权负责）
+        .simultaneousGesture(TapGesture().onEnded { collapseSearch() })
         .background(Color.panelBackground)
         .environment(\.colorScheme, .dark)
         .onChange(of: showHiddenFiles) { loadFiles() }
@@ -161,28 +187,14 @@ struct MainContentView: View {
         .onAppear { loadFiles() }
     }
 
-    /// 标题栏右侧搜索框（固定宽度，工具栏内 TextField 会无限撑开）
-    private var searchField: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
-                .font(.system(size: 12))
-            TextField("搜索...", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-            if !searchText.isEmpty {
-                Button(action: { searchText = "" }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 8)
-        .frame(width: 200)
-        .frame(height: 26)
-        .glassControlBackground()
+    /// 返回/前进：统一几何的玻璃胶囊
+    /// 返回/前进：统一几何的玻璃胶囊，按压整颗发光
+    /// 收回搜索框并清空（放大镜再点 / Esc / 点击详情区任意处）
+    private func collapseSearch() {
+        guard isSearching else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isSearching = false }
+        searchFocused = false
+        searchText = ""
     }
 
     private var statusBar: some View {
@@ -207,7 +219,7 @@ struct MainContentView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 3)
-        .glassStripBackground()
+        .glassEffect(.regular, in: Rectangle())
     }
 
     /// 后台线程枚举目录；token 使快速连续导航时旧的慢结果被丢弃

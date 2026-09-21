@@ -33,7 +33,7 @@ Not lazy about: understanding the problem (read it fully and trace the real flow
 
 ## Project: DuoXplore
 
-- **Language**: Swift 6.0 · **UI**: SwiftUI + AppKit · **Min**: macOS 14.0 · **Packages**: none (zero third-party deps, Foundation/AppKit/SwiftUI only)
+- **Language**: Swift 6.0 · **UI**: SwiftUI + AppKit · **Min**: macOS 27.0 (Liquid Glass 设计，无兼容分支) · **Packages**: none (zero third-party deps, Foundation/AppKit/SwiftUI only)
 - **Layout**: all code in `Sources/DuoXplore/{Models,Views,Services}` + `AppVersion.swift`. `docs/development-guide.md` is the step-by-step operations manual (env, build, release) — where it conflicts with this file, its tested conclusions win.
 - **App icon**: `Package.swift` copies the repo-root `AppIcon.icns` into the bundle; `generate_icon.swift` re-renders the iconset PNGs (`swift generate_icon.swift <outdir>`).
 - **Debug build + relaunch**: `swift build --disable-sandbox` (incremental ≈ 1s), then launch the binary at the path from `swift build --disable-sandbox --show-bin-path`. `./build_and_run.sh` does both and kills the previous instance first. Don't pass `--arch` in the inner loop — multi-arch builds need full Xcode (see packaging).

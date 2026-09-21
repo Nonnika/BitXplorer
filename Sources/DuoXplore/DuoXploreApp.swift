@@ -24,7 +24,7 @@ struct AboutView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
 
-            Text("需 macOS 14.0 或更高版本")
+            Text("需 macOS 27.0 或更高版本")
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
 
@@ -141,6 +141,7 @@ struct DuoXploreApp: App {
                 )
                 .frame(minWidth: 200)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+                // 边栏开关用系统自带的按钮（位置和 Liquid Glass 风格都是系统的，同 Finder）
             } detail: {
                 MainContentView(
                     currentURL: $currentURL,
