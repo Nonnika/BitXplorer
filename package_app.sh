@@ -3,10 +3,10 @@ set -e
 cd "$(dirname "$0")"
 
 PROJ="$PWD"
-VERSION=$(grep 'static let marketing' "$PROJ/Sources/DuoXplore/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
-BUILD_NUM=$(grep 'static let build' "$PROJ/Sources/DuoXplore/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
+VERSION=$(grep 'static let marketing' "$PROJ/Sources/BitXplore/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
+BUILD_NUM=$(grep 'static let build' "$PROJ/Sources/BitXplore/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
 OUT="$PROJ/build"
-APP="$OUT/DuoXplore.app"
+APP="$OUT/BitXplore.app"
 STAGE="$OUT/.dmg_stage"
 mkdir -p "$OUT"
 
@@ -17,13 +17,13 @@ cat > "$1" << PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>DuoXplore</string>
+    <string>BitXplore</string>
     <key>CFBundleIdentifier</key>
-    <string>top.struct.duoxplore</string>
+    <string>top.struct.bitxplore</string>
     <key>CFBundleName</key>
-    <string>DuoXplore</string>
+    <string>BitXplore</string>
     <key>CFBundleDisplayName</key>
-    <string>DuoXplore</string>
+    <string>BitXplore</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
@@ -43,7 +43,7 @@ cat > "$1" << PLIST
 PLIST
 }
 
-# 组装 DuoXplore.app；给 SUFFIX 时打包成发布用 dmg（内含 Applications 快捷方式）
+# 组装 BitXplore.app；给 SUFFIX 时打包成发布用 dmg（内含 Applications 快捷方式）
 pack() {
     local BIN=$1 SUFFIX=$2
     rm -rf "$APP"
@@ -54,20 +54,20 @@ pack() {
     write_plist "$APP/Contents/Info.plist"
 
     if [ -n "$SUFFIX" ]; then
-        local DMG="$OUT/DuoXplore_${VERSION}-${SUFFIX}.dmg"
+        local DMG="$OUT/BitXplore_${VERSION}-${SUFFIX}.dmg"
         rm -rf "$STAGE" "$DMG"
         mkdir -p "$STAGE"
-        ditto "$APP" "$STAGE/DuoXplore.app"
+        ditto "$APP" "$STAGE/BitXplore.app"
         ln -s /Applications "$STAGE/Applications"
-        hdiutil create -volname "DuoXplore" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+        hdiutil create -volname "BitXplore" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
         rm -rf "$STAGE"
-        echo "  → DuoXplore_${VERSION}-${SUFFIX}.dmg"
+        echo "  → BitXplore_${VERSION}-${SUFFIX}.dmg"
     fi
 }
 
 # 清理旧产物（build/ 为新目录，仓库根目录的残留一并清掉）
-rm -rf "$OUT"/DuoXplore_*.dmg "$OUT"/DuoXplore_*.zip "$APP" "$STAGE"
-rm -rf "$PROJ"/DuoXplore_*.dmg "$PROJ"/DuoXplore_*.zip "$PROJ"/DuoXplore.app "$PROJ"/DuoXplore-*.app "$PROJ"/.dmg_stage
+rm -rf "$OUT"/BitXplore_*.dmg "$OUT"/BitXplore_*.zip "$APP" "$STAGE"
+rm -rf "$PROJ"/BitXplore_*.dmg "$PROJ"/BitXplore_*.zip "$PROJ"/BitXplore.app "$PROJ"/BitXplore-*.app "$PROJ"/.dmg_stage
 
 echo "=== 构建 x86_64 ==="
 swift build -c release --disable-sandbox --arch x86_64
@@ -80,17 +80,17 @@ swift build -c release --disable-sandbox --arch arm64 --arch x86_64
 
 echo ""
 echo "=== 打包 ==="
-pack ".build/x86_64-apple-macosx/release/DuoXplore" amd64
-pack ".build/arm64-apple-macosx/release/DuoXplore" arm64
-pack ".build/apple/Products/Release/DuoXplore" universal
+pack ".build/x86_64-apple-macosx/release/BitXplore" amd64
+pack ".build/arm64-apple-macosx/release/BitXplore" arm64
+pack ".build/apple/Products/Release/BitXplore" universal
 
-# 本地保留一份 universal 的 DuoXplore.app 供直接运行
-pack ".build/apple/Products/Release/DuoXplore" ""
+# 本地保留一份 universal 的 BitXplore.app 供直接运行
+pack ".build/apple/Products/Release/BitXplore" ""
 
 echo ""
 echo "=== 全部完成 ==="
 echo "发布 dmg（上传 Releases）："
-echo "  build/DuoXplore_${VERSION}-amd64.dmg"
-echo "  build/DuoXplore_${VERSION}-arm64.dmg"
-echo "  build/DuoXplore_${VERSION}-universal.dmg"
+echo "  build/BitXplore_${VERSION}-amd64.dmg"
+echo "  build/BitXplore_${VERSION}-arm64.dmg"
+echo "  build/BitXplore_${VERSION}-universal.dmg"
 echo "本地运行：$APP"

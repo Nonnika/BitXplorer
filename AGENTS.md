@@ -31,16 +31,17 @@ Not lazy about: understanding the problem (read it fully and trace the real flow
 
 ---
 
-## Project: DuoXplore
+## Project: BitXplore
 
-- **Language**: Swift 6.0 · **UI**: SwiftUI + AppKit · **Min**: macOS 27.0 (Liquid Glass 设计，无兼容分支) · **Packages**: none (zero third-party deps, Foundation/AppKit/SwiftUI only)
-- **Layout**: all code in `Sources/DuoXplore/{Models,Views,Services}` + `AppVersion.swift`. `docs/development-guide.md` is the step-by-step operations manual (env, build, release) — where it conflicts with this file, its tested conclusions win.
+- **Language**: Swift 6 toolchain (`swift-tools-version: 6.4`) · **UI**: SwiftUI + AppKit · **Min**: macOS 27.0 (Liquid Glass 设计，无兼容分支) · **Packages**: none (zero third-party deps, Foundation/AppKit/SwiftUI only)
+- **Naming**: repo dir and SPM *package* are `BitXplore`; the executable *target*, app and product remain `BitXplore` (bundle id `top.struct.bitxplore`). The resource bundle is named `<PackageName>_<TargetName>.bundle` → `BitXplore_BitXplore.bundle`, hardcoded in `setAppIcon()` — renaming either package or target breaks icon loading unless that string is updated too.
+- **Layout**: all code in `Sources/BitXplore/{Models,Views,Services}` + `AppVersion.swift`. `docs/development-guide.md` is the step-by-step operations manual (env, build, release) — where it conflicts with this file, its tested conclusions win.
 - **App icon**: `Package.swift` copies the repo-root `AppIcon.icns` into the bundle; `generate_icon.swift` re-renders the iconset PNGs (`swift generate_icon.swift <outdir>`).
-- **Debug build + relaunch**: `swift build --disable-sandbox` (incremental ≈ 1s), then launch the binary at the path from `swift build --disable-sandbox --show-bin-path`. `./build_and_run.sh` does both and kills the previous instance first. Don't pass `--arch` in the inner loop — multi-arch builds need full Xcode (see packaging).
-- **Release packaging**: `./package_app.sh` builds x86_64, arm64 and Universal, and puts **every artifact in `build/`** (gitignored): `build/DuoXplore_<ver>-amd64.dmg`, `-arm64.dmg`, `-universal.dmg`, plus a runnable `build/DuoXplore.app`. Intermediates stay in `.build/`: Universal at `.build/apple/Products/Release/`, single-arch at `.build/<arch>-apple-macosx/release/`. Nothing is written to the repo root.
-- **Versioning**: `Sources/DuoXplore/AppVersion.swift` is the single source of truth (`marketing` + `build`). Bump it there only — window title and `Info.plist` (via `package_app.sh` grep) sync automatically. Never hardcode a version elsewhere. The bump is **manual**: no CI, no auto-increment, no `git describe` fallback, so the file and the release tag are updated by hand together.
+- **Debug build + relaunch**: 用 `./build_and_run.sh` —— 它执行 `swift build --disable-sandbox`（增量 ≈ 1s）、按 `--show-bin-path` 启动二进制并先杀掉旧实例。日常开发一律用脚本，不要手动拆步骤跑。Don't pass `--arch` in the inner loop — multi-arch builds need full Xcode (see packaging).
+- **Release packaging**: `./package_app.sh` builds x86_64, arm64 and Universal, and puts **every artifact in `build/`** (gitignored): `build/BitXplore_<ver>-amd64.dmg`, `-arm64.dmg`, `-universal.dmg`, plus a runnable `build/BitXplore.app`. Intermediates stay in `.build/`: Universal at `.build/apple/Products/Release/`, single-arch at `.build/<arch>-apple-macosx/release/`. Nothing is written to the repo root.
+- **Versioning**: `Sources/BitXplore/AppVersion.swift` is the single source of truth (`marketing` + `build`). Bump it there only — window title and `Info.plist` (via `package_app.sh` grep) sync automatically. Never hardcode a version elsewhere. The bump is **manual**: no CI, no auto-increment, no `git describe` fallback, so the file and the release tag are updated by hand together.
 - **Multi-arch builds need full Xcode**: `--arch arm64 --arch x86_64` (hence `package_app.sh`) fails with `xcbuild executable ... does not exist` when `xcode-select -p` points at Command Line Tools. Fix: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. Single-arch `swift build` works with CLT alone.
-- **Upgrading an installed app**: fixed bundle id `top.struct.duoxplore`, no auto-updater, and no user state (no `UserDefaults` / Application Support) — update by dragging the new app over `/Applications/DuoXplore.app` and choosing 替换.
+- **Upgrading an installed app**: fixed bundle id `top.struct.bitxplore`, no auto-updater, and no user state (no `UserDefaults` / Application Support) — update by dragging the new app over `/Applications/BitXplore.app` and choosing 替换.
 - `@MainActor` on every ObservableObject.
 - Reusable file operations live in `FileSystemService` — reuse it for CRUD/trash/reveal/copy-path instead of duplicating logic. One-off filesystem probes (`fileExists`, `open` with `O_EVTONLY` for watching) may use Foundation directly.
 - Icons: SF Symbols for generic UI, `NSWorkspace.icon(forFile:)` for real file icons.

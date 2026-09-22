@@ -1,4 +1,4 @@
-# DuoXplore
+# BitXplore
 
 一个用 SwiftUI 构建的 macOS 文件管理器，风格类似 Finder，支持树形侧边栏、面包屑导航、多选、内联重命名等功能。
 
@@ -10,7 +10,7 @@
 
 ## 相比访达（Finder）的优势
 
-| | Finder | DuoXplore |
+| | Finder | BitXplore |
 |---|---|---|
 | **地址栏** | 右键 Option 才能看到路径，复制不方便 | 点击空白即切换为可编辑路径，自动全选，一键复制 |
 | **目录树** | 侧边栏仅收藏夹，无完整目录树 | 完整目录树，根节点直达 /、/Users、/Applications |
@@ -60,15 +60,15 @@
 
 ```bash
 swift build --disable-sandbox
-open "$(swift build --disable-sandbox --show-bin-path)/DuoXplore"
+open "$(swift build --disable-sandbox --show-bin-path)/BitXplore"
 ```
 
-产物在 `.build/<arch>-apple-macosx/debug/DuoXplore`（Apple Silicon 为 `arm64-…`，Intel 为 `x86_64-…`），用 `--show-bin-path` 取路径可免手写架构名。
+产物在 `.build/<arch>-apple-macosx/debug/BitXplore`（Apple Silicon 为 `arm64-…`，Intel 为 `x86_64-…`），用 `--show-bin-path` 取路径可免手写架构名。
 
 ### 方式三：Xcode（需要断点调试时）
 
 ```bash
-open Package.swift        # 以 SwiftPM 工程打开，scheme 选 DuoXplore 后 ⌘R
+open Package.swift        # 以 SwiftPM 工程打开，scheme 选 BitXplore 后 ⌘R
 ```
 
 > 必须带 `--disable-sandbox`：应用读写真实文件系统，SPM 沙箱会拦截。Debug 裸二进制没有 `.app` 外壳，Dock 图标与应用名称不完整，功能不受影响。
@@ -82,22 +82,22 @@ open Package.swift        # 以 SwiftPM 工程打开，scheme 选 DuoXplore 后 
 脚本构建 x86_64 / arm64 / Universal 三个架构，并打包成 dmg 安装镜像（内含 Applications 快捷方式，拖拽即装），**产物统一输出到 `build/`**（已被 `.gitignore` 忽略）：
 
 ```
-build/DuoXplore_<版本>-amd64.dmg
-build/DuoXplore_<版本>-arm64.dmg
-build/DuoXplore_<版本>-universal.dmg
+build/BitXplore_<版本>-amd64.dmg
+build/BitXplore_<版本>-arm64.dmg
+build/BitXplore_<版本>-universal.dmg
 ```
 
-同时在 `build/DuoXplore.app` 保留一份 Universal 版本可直接运行。版本号从 `Sources/DuoXplore/AppVersion.swift` 读取 —— 该文件是版本号的唯一真源，**发版前需手动递增**（`marketing` + `build`），仓库无 CI、不会自动加号。
+同时在 `build/BitXplore.app` 保留一份 Universal 版本可直接运行。版本号从 `Sources/BitXplore/AppVersion.swift` 读取 —— 该文件是版本号的唯一真源，**发版前需手动递增**（`marketing` + `build`），仓库无 CI、不会自动加号。
 
 > 多架构构建需要完整的 Xcode（不止 Command Line Tools）。若报 `xcbuild executable ... does not exist`，先执行 `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`。
 
-升级已安装的旧版本：退出应用 → 双击新 dmg → 把 app 拖入 Applications → 选「替换」。bundle id 固定为 `top.struct.duoxplore`，且应用不保存任何用户数据，覆盖即完成升级。
+升级已安装的旧版本：退出应用 → 双击新 dmg → 把 app 拖入 Applications → 选「替换」。bundle id 固定为 `top.struct.bitxplore`，且应用不保存任何用户数据，覆盖即完成升级。
 
 
 ## 项目结构
 
 ```
-DuoXplore/
+BitXplore/
 ├── Package.swift                 # Swift Package Manager 配置
 ├── build_and_run.sh              # Debug 增量构建 + 重启应用
 ├── package_app.sh                # Release 打包 dmg（三架构，输出至 build/）
@@ -105,9 +105,9 @@ DuoXplore/
 ├── build/                        # 打包产物（dmg / .app，不入库）
 ├── docs/
 │   └── development-guide.md      # 开发流程：环境、构建、规范、发布、升级
-└── Sources/DuoXplore/
+└── Sources/BitXplore/
     ├── AppVersion.swift          # 版本号定义
-    ├── DuoXploreApp.swift   # 入口 + 主窗口
+    ├── BitXploreApp.swift   # 入口 + 主窗口
     ├── Models/
     │   ├── FileItem.swift        # 文件/文件夹数据模型
     │   ├── SortOptions.swift     # 排序选项与方向

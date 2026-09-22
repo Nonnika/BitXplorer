@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "DuoXplore",
+    name: "BitXplore",
     platforms: [
         .macOS(.v27)
     ],
     targets: [
         .executableTarget(
-            name: "DuoXplore",
-            path: "Sources/DuoXplore",
+            name: "BitXplore",
+            path: "Sources/BitXplore",
             resources: [
                 .copy("../../AppIcon.icns")
             ]

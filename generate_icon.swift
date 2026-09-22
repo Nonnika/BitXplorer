@@ -4,7 +4,7 @@ import Foundation
 /// 用代码生成 App 图标 — 遵循 macOS（Big Sur+）图标规范：
 /// - 1024 画布，作品区域约 824/1024 居中，四周透明边距（小尺寸按比例放大占比）
 /// - 正面平视绘制（无透视），squircle 圆角 + 柔和投影 + 顶面高光
-/// - 主体：正面文件夹 + 双向交换箭头（DuoXplore 的双栏文件交换主题）
+/// - 主体：正面文件夹 + 双向交换箭头（BitXplore 的双栏文件交换主题）
 
 /// 各尺寸的作品区域占画布比例：大尺寸 0.824，越小越接近满幅
 func artworkFraction(for size: CGFloat) -> CGFloat {

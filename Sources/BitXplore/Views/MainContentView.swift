@@ -9,8 +9,6 @@ extension Color {
 struct MainContentView: View {
     @Binding var currentURL: URL
     @Binding var files: [FileItem]
-    @Binding var sortOption: SortOption
-    @Binding var sortDirection: SortDirection
     @Binding var selectedURLs: Set<URL>
     @Binding var clipboardURLs: [URL]
     @Binding var clipboardIsCut: Bool
@@ -29,7 +27,6 @@ struct MainContentView: View {
     @State private var watcherSource: DispatchSourceFileSystemObject?
     @State private var watcherPath: String?
     @State private var watcherDebounce: DispatchWorkItem?
-    @FocusState private var renameFieldFocused: Bool
     /// 搜索展开态与输入框焦点
     @State private var isSearching = false
     @FocusState private var searchFocused: Bool
@@ -57,22 +54,19 @@ struct MainContentView: View {
             } else {
                 FileListView(
                     files: Binding(get: { displayedFiles }, set: { files = $0 }),
-                    sortOption: $sortOption,
-                    sortDirection: $sortDirection,
                     selectedURLs: $selectedURLs,
                     clipboardURLs: $clipboardURLs,
                     clipboardIsCut: $clipboardIsCut,
                     currentURL: $currentURL,
                     showHiddenFiles: $showHiddenFiles,
                     onNavigate: { url in
-                        navigationState.push(currentURL)
+                        navigationState.invalidate()
                         currentURL = url
                     },
                     fsService: fsService,
                     isRenaming: $isRenaming,
                     renameTarget: $renameTarget,
                     renameText: $renameText,
-                    renameFieldFocused: $renameFieldFocused,
                     onRefresh: { loadFiles() }
                 )
             }
@@ -88,7 +82,7 @@ struct MainContentView: View {
             // sharedBackgroundVisibility(.hidden) 退出工具栏的共享玻璃底（新设计默认给每个 item 套玻璃）
             ToolbarItem(placement: .navigation) {
                 BreadcrumbBar(currentURL: $currentURL, onNavigate: { url in
-                    navigationState.push(currentURL)
+                    navigationState.invalidate()
                     currentURL = url
                 })
                 .frame(height: 26)
@@ -137,13 +131,13 @@ struct MainContentView: View {
                 .glassEffect(.regular.interactive(), in: Capsule())
             }
         }
-        // 返回/前进：一颗精确的 Capsule 玻璃罩住两个按钮（glassEffectUnion 的液态过渡
+        // 上一级/下一级：一颗精确的 Capsule 玻璃罩住两个按钮（glassEffectUnion 的液态过渡
         // 在两颗圆片之间会鼓包，弃用；.interactive() 玻璃的系统悬停/按压高亮保留）
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 HStack(spacing: 0) {
                     Button(action: {
-                        if let url = navigationState.goBack(from: currentURL) {
+                        if let url = navigationState.goUp(from: currentURL) {
                             currentURL = url
                         }
                     }) {
@@ -152,15 +146,15 @@ struct MainContentView: View {
                             .frame(width: 30, height: 26)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!navigationState.canGoBack())
-                    .help("后退")
+                    .disabled(!navigationState.canGoUp(current: currentURL))
+                    .help("上一级目录")
 
                     Rectangle()
                         .fill(Color.primary.opacity(0.15))
                         .frame(width: 1, height: 18)
 
                     Button(action: {
-                        if let url = navigationState.goForward(from: currentURL) {
+                        if let url = navigationState.goDown() {
                             currentURL = url
                         }
                     }) {
@@ -169,17 +163,27 @@ struct MainContentView: View {
                             .frame(width: 30, height: 26)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!navigationState.canGoForward())
-                    .help("前进")
+                    .disabled(!navigationState.canGoDown())
+                    .help("下一级目录")
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
                 .glassEffect(.regular.interactive(), in: Capsule())
             }
         }
-        // 搜索：系统原生工具栏搜索（放大镜按钮点击丝滑展开，玻璃风格系统全权负责）
         .simultaneousGesture(TapGesture().onEnded { collapseSearch() })
         .background(Color.panelBackground)
+        // 顶栏背景带：AppKit NSVisualEffectView（.headerView 材质，与表头同款），
+        // 必须盖在内容之上（overlay）withinWindow 才能模糊钻进来的滚动行；垫在
+        // .background 里只会糊到深色底色（之前一直出不来模糊的原因）
+        .overlay(alignment: .top) {
+            GeometryReader { proxy in
+                ToolbarBlurView()
+                    .frame(height: proxy.safeAreaInsets.top)
+            }
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+        }
         .environment(\.colorScheme, .dark)
         .onChange(of: showHiddenFiles) { loadFiles() }
         .onChange(of: currentURL) { loadFiles() }
@@ -222,7 +226,20 @@ struct MainContentView: View {
         .glassEffect(.regular, in: Rectangle())
     }
 
-    /// 后台线程枚举目录；token 使快速连续导航时旧的慢结果被丢弃
+/// 顶栏背景：与表头同款 NSVisualEffectView，盖在滚动内容之上做窗内模糊
+private struct ToolbarBlurView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .headerView
+        view.blendingMode = .withinWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
+/// 后台线程枚举目录；token 使快速连续导航时旧的慢结果被丢弃
     private func loadFiles() {
         loadToken += 1
         let token = loadToken

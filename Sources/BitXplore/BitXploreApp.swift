@@ -11,7 +11,7 @@ struct AboutView: View {
                 .resizable()
                 .frame(width: 80, height: 80)
 
-            Text("DuoXplore")
+            Text("BitXplore")
                 .font(.system(size: 18, weight: .bold))
 
             Text("版本 \(AppVersion.marketing) (Build \(AppVersion.build))")
@@ -37,7 +37,7 @@ struct AboutView: View {
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                 Link("项目主页",
-                     destination: URL(string: "https://github.com/Syrnaxei/DuoXplorer")!)
+                     destination: URL(string: "https://github.com/Nonnika/BitXplorer")!)
                     .font(.system(size: 10))
                     .foregroundColor(.accentColor)
             }
@@ -50,12 +50,10 @@ struct AboutView: View {
 }
 
 @main
-struct DuoXploreApp: App {
+struct BitXploreApp: App {
     @StateObject private var navigationState = NavigationState()
     @State private var currentURL = URL(fileURLWithPath: "/Users/\(NSUserName())")
     @State private var files: [FileItem] = []
-    @State private var sortOption: SortOption = .name
-    @State private var sortDirection: SortDirection = .ascending
     @State private var selectedURLs: Set<URL> = []
     @State private var clipboardURLs: [URL] = []
     @State private var clipboardIsCut = false
@@ -90,7 +88,7 @@ struct DuoXploreApp: App {
             backing: .buffered,
             defer: false
         )
-        window.title = "关于 DuoXplore"
+        window.title = "关于 BitXplore"
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: AboutView())
         window.setContentSize(NSSize(width: 380, height: 340))
@@ -108,18 +106,18 @@ struct DuoXploreApp: App {
     }
 
     private func setAppIcon() {
-        guard let bundleURL = Bundle.main.url(forResource: "DuoXplore_DuoXplore", withExtension: "bundle"),
+        guard let bundleURL = Bundle.main.url(forResource: "BitXplore_BitXplore", withExtension: "bundle"),
               let bundle = Bundle(url: bundleURL) else {
-            print("[DuoXplore] 未找到资源 bundle")
+            print("[BitXplore] 未找到资源 bundle")
             return
         }
         guard let icnsURL = bundle.url(forResource: "AppIcon", withExtension: "icns") else {
-            print("[DuoXplore] 未找到 AppIcon.icns")
+            print("[BitXplore] 未找到 AppIcon.icns")
             return
         }
         let icon = NSImage(contentsOf: icnsURL)
         NSApp.applicationIconImage = icon
-        print("[DuoXplore] 图标已设置")
+        print("[BitXplore] 图标已设置")
     }
 
     var body: some Scene {
@@ -135,7 +133,7 @@ struct DuoXploreApp: App {
                     ],
                     onSelect: { url in
                         // 只改 currentURL，列表加载统一由 MainContentView.onChange 触发
-                        navigationState.push(currentURL)
+                        navigationState.invalidate()
                         currentURL = url
                     }
                 )
@@ -146,8 +144,6 @@ struct DuoXploreApp: App {
                 MainContentView(
                     currentURL: $currentURL,
                     files: $files,
-                    sortOption: $sortOption,
-                    sortDirection: $sortDirection,
                     selectedURLs: $selectedURLs,
                     clipboardURLs: $clipboardURLs,
                     clipboardIsCut: $clipboardIsCut,
@@ -164,14 +160,20 @@ struct DuoXploreApp: App {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
                 requestFileAccessAtLaunch()
-                print("[DuoXplore] 窗口已显示")
+                // 标题栏透明 + 内容延伸到标题栏下方：滚动行钻进顶栏模糊带（MainContentView
+                // 的 ToolbarBlurView）底下被窗内模糊
+                if let window = NSApp.windows.first {
+                    window.titlebarAppearsTransparent = true
+                    window.styleMask.insert(.fullSizeContentView)
+                }
+                print("[BitXplore] 窗口已显示")
             }
         }
         .defaultSize(width: 1100, height: 700)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("关于 DuoXplore") {
+                Button("关于 BitXplore") {
                     showAboutWindow()
                 }
             }

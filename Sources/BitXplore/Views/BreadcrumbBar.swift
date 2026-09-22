@@ -52,13 +52,8 @@ struct BreadcrumbBar: View {
         Button {
             isExpanded = true
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "folder")
-                    .foregroundColor(.accentColor)
-                    .font(.system(size: 12))
-                Text(currentName)
-                    .font(.system(size: 13))
-            }
+            Text(currentName)
+                .font(.system(size: 13, weight: .bold))
         }
         .buttonStyle(.plain)
         .help(currentURL.path)
