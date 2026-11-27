@@ -79,6 +79,19 @@ assert(fm.fileExists(atPath: unpackedMulti!.appendingPathComponent("y.txt").path
 let dup = svc.duplicate([work.appendingPathComponent("y.txt")])
 assert(dup.first?.lastPathComponent == "y 副本.txt", "duplicate: \(dup)")
 
+// 命令面板/路径栏的路径解析：引号、~、file://、相对路径、反斜杠转义、zip 包内路径
+let spaced = root.appendingPathComponent("with space")
+try fm.createDirectory(at: spaced, withIntermediateDirectories: true)
+func resolved(_ s: String) -> String? { FileSystemService.resolve(s, relativeTo: root)?.path }
+let rootPath = root.standardizedFileURL.path
+assert(resolved("  \"\(spaced.path)\"  ") == spaced.standardizedFileURL.path, "quoted")
+assert(resolved(spaced.path.replacingOccurrences(of: " ", with: "\\ ")) == spaced.standardizedFileURL.path, "escaped")
+assert(resolved(spaced.absoluteString) == spaced.standardizedFileURL.path, "file url")
+assert(resolved("with space/../src") == rootPath + "/src", "relative")
+assert(resolved("~") == NSHomeDirectory(), "tilde")
+assert(resolved("deflate.zip/中文目录") == rootPath + "/deflate.zip/中文目录", "zip inner")
+assert(resolved("nope/missing") == nil && resolved("   ") == nil, "missing")
+
 // 非 zip 路径不受影响；损坏文件抛错而不是崩溃
 assert(ZipArchive.split(root.appendingPathComponent("src/a.txt")) == nil)
 do { _ = try ZipArchive.entries(of: root.appendingPathComponent("broken.zip")); assertionFailure("should throw") }

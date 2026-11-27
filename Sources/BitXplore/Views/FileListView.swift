@@ -22,6 +22,7 @@ struct FileListView: View {
 
     /// 用户自选的终端 App 路径（「选择其他终端…」），在菜单中排第一
     @AppStorage("customTerminalPath") private var customTerminalPath = ""
+    @AppStorage(SidebarFavorite.storageKey) private var favoritesData = Data()
 
     @State private var sortOrder: [FileSortComparator] = [FileSortComparator(.name)]
     @State private var isRenaming = false
@@ -29,17 +30,29 @@ struct FileListView: View {
     @State private var renameText = ""
     @FocusState private var renameFieldFocused: Bool
 
-    @State private var isCreatingFolder = false
-    @State private var newFolderText = "新建文件夹"
+    /// 刚新建、等列表刷新出来后进入重命名的文件夹
+    @State private var pendingRename: URL?
+    /// 需要滚动到可见的行
+    @State private var scrollTarget: URL?
 
     private var sortedFiles: [FileItem] {
         files.sorted(using: sortOrder)
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            table.onChange(of: scrollTarget) {
+                guard let scrollTarget else { return }
+                proxy.scrollTo(scrollTarget)
+                self.scrollTarget = nil
+            }
+        }
+    }
+
+    private var table: some View {
         let cutURLs: Set<URL> = clipboardIsCut ? Set(clipboardURLs) : []
 
-        Table(of: FileItem.self, selection: $selectedURLs, sortOrder: $sortOrder) {
+        return Table(of: FileItem.self, selection: $selectedURLs, sortOrder: $sortOrder) {
             TableColumn("名称", sortUsing: FileSortComparator(.name)) { item in
                 HStack(spacing: 6) {
                     Image(nsImage: IconCache.icon(for: item))
@@ -94,6 +107,9 @@ struct FileListView: View {
             fileRows
         }
         .tableStyle(.inset)
+        // 换目录/改搜索时重建整个 Table，而不是在旧表上 diff：SwiftUI 的 Table 在“已滚到下方 + 数据骤减”时
+        // 会拿旧的可见起始行去取新数据（ForEach.IDGenerator Index out of range 崩溃）。顺带让新目录从顶部开始
+        .id(TableIdentity(url: currentURL, search: searchText))
         .contextMenu(forSelectionType: URL.self) { urls in
             if urls.isEmpty {
                 backgroundMenu
@@ -103,10 +119,10 @@ struct FileListView: View {
         } primaryAction: { urls in
             openItems(urls)
         }
-        // ↑↓ 由 Table 原生切换选中；→ 进入选中的文件夹，← / Delete 返回上一级
-        .onKeyPress(keys: [.return, .delete, .leftArrow, .rightArrow, .space, .escape, KeyEquivalent("\u{F705}")]) { press in
+        // ↑↓ 由 Table 原生切换选中；→ 进入选中的文件夹，← 返回上一级；Delete / ⌦ 移到废纸篓
+        .onKeyPress(keys: [.return, .delete, .deleteForward, .leftArrow, .rightArrow, .space, .escape, KeyEquivalent("\u{F705}")]) { press in
             // 方向键自带 numericPad/function 标志，只看真正的修饰键；带 ⌘ 的交给外层（⌘←/→ 切栏）
-            guard !isRenaming, !isCreatingFolder,
+            guard !isRenaming,
                   press.modifiers.intersection([.command, .shift, .option, .control]).isEmpty
             else { return .ignored }
             switch press.key {
@@ -125,7 +141,11 @@ struct FileListView: View {
                 guard selectedURLs.count == 1, let url = selectedURLs.first, canEnter(url) else { return .ignored }
                 onNavigate(url)
                 return .handled
-            case .delete, .leftArrow:
+            case .delete, .deleteForward:
+                guard !selectedURLs.isEmpty, !inZip else { return .ignored }
+                trashSelection(selectedURLs)
+                return .handled
+            case .leftArrow:
                 guard currentURL.path != "/" else { return .ignored }
                 onNavigate(currentURL.deletingLastPathComponent())
                 return .handled
@@ -142,11 +162,15 @@ struct FileListView: View {
         .onChange(of: selectedURLs) { QuickLook.shared.updateIfVisible(previewURLs(selectedURLs)) }
         .onChange(of: newFolderTrigger) { startCreateFolder() }
         .onChange(of: renameTrigger) { startRename() }
-        .onChange(of: currentURL) { cancelRename() }
-        .alert("新建文件夹", isPresented: $isCreatingFolder) {
-            TextField("文件夹名称", text: $newFolderText)
-            Button("创建") { commitCreateFolder() }
-            Button("取消", role: .cancel) {}
+        .onChange(of: currentURL) { cancelRename(); pendingRename = nil }
+        // 新建的文件夹出现在列表里后：选中、滚到可见、进入重命名
+        .onChange(of: files) {
+            guard let target = pendingRename,
+                  let item = files.first(where: { $0.url.standardizedFileURL.path == target.standardizedFileURL.path })
+            else { return }
+            pendingRename = nil
+            scrollTarget = item.url
+            startRename(target: item.url)
         }
         .overlay {
             if files.isEmpty {
@@ -208,6 +232,10 @@ struct FileListView: View {
         Button("在 Finder 中打开") { fsService.openInFinder(currentURL) }
             .disabled(inZip)
         Button("复制当前路径") { fsService.copyToPasteboard(currentURL.path) }
+        Button("将当前文件夹添加到快速访问") {
+            favoritesData = SidebarFavorite.adding([currentURL], to: favoritesData)
+        }
+        .disabled(inZip)
         Divider()
         Button(showHiddenFiles ? "不显示隐藏项目" : "显示隐藏项目") {
             showHiddenFiles.toggle()
@@ -227,6 +255,11 @@ struct FileListView: View {
         }
         if let single, canEnter(single), let onOpenInOtherPane {
             Button("在另一栏中打开") { onOpenInOtherPane(single) }
+        }
+        if !inZip, ordered.allSatisfy(isDirectory) {
+            Button("添加到快速访问") {
+                favoritesData = SidebarFavorite.adding(ordered, to: favoritesData)
+            }
         }
         Button("快速查看") { QuickLook.shared.toggle(previewURLs(urls)) }
         Divider()
@@ -417,19 +450,14 @@ struct FileListView: View {
         renameFieldFocused = false
     }
 
+    /// Finder 式新建：直接建「未命名文件夹」，列表刷新出来后进入行内重命名
     private func startCreateFolder() {
-        newFolderText = "新建文件夹"
-        isCreatingFolder = true
-    }
-
-    private func commitCreateFolder() {
-        let trimmed = newFolderText.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, fsService.isValidFileName(trimmed) else { return }
+        guard !inZip else { return NSSound.beep() }
         do {
-            let newURL = try fsService.createFolder(at: currentURL, name: trimmed)
-            selectedURLs = [newURL]
+            pendingRename = try fsService.createUntitledFolder(in: currentURL)
             onRefresh()
         } catch {
+            NSSound.beep()
             print("创建文件夹失败: \(error)")
         }
     }
@@ -562,4 +590,10 @@ final class QuickLook: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegat
         let icon: NSImage? = MainActor.assumeIsolated { items.first(where: { $0.url == url })?.icon }
         return icon
     }
+}
+
+/// Table 的身份：目录或搜索词变化即视为新表
+private struct TableIdentity: Hashable {
+    let url: URL
+    let search: String
 }

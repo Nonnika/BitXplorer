@@ -5,6 +5,32 @@ import UniformTypeIdentifiers
 /// 文件系统服务 - 无状态，负责目录读取与文件操作
 final class FileSystemService: Sendable {
 
+    /// 把用户输入/粘贴的路径解析为存在的 URL（或 zip 包内路径）；无法解析返回 nil。
+    /// 容忍复制路径时常见的形态：首尾引号、file:// 链接、~、相对 base 的路径、终端里的反斜杠转义
+    static func resolve(_ input: String, relativeTo base: URL) -> URL? {
+        var raw = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.count >= 2, let quote = raw.first, quote == raw.last, quote == "\"" || quote == "'" {
+            raw = String(raw.dropFirst().dropLast())
+        }
+        guard !raw.isEmpty else { return nil }
+
+        var candidates: [URL] = []
+        if raw.hasPrefix("file://"), let url = URL(string: raw), url.isFileURL {
+            candidates.append(url)
+        } else {
+            // 先按原样，再试去掉反斜杠转义（"My\ File" → "My File"）
+            for text in [raw, raw.replacingOccurrences(of: #"\\(.)"#, with: "$1", options: .regularExpression)] {
+                let expanded = (text as NSString).expandingTildeInPath
+                candidates.append(expanded.hasPrefix("/")
+                    ? URL(fileURLWithPath: expanded)
+                    : URL(fileURLWithPath: expanded, relativeTo: base))
+            }
+        }
+        return candidates.map(\.standardizedFileURL).first {
+            FileManager.default.fileExists(atPath: $0.path) || ZipArchive.split($0) != nil
+        }
+    }
+
     /// 读取指定路径下的文件列表（同步、可重入，调用方负责放后台线程）
     func listDirectory(at url: URL, showHidden: Bool = false) throws -> [FileItem] {
         let items: [FileItem]
@@ -220,9 +246,9 @@ final class FileSystemService: Sendable {
         return process.terminationStatus == 0
     }
 
-    /// 新建文件夹
-    func createFolder(at url: URL, name: String) throws -> URL {
-        let newURL = url.appendingPathComponent(name)
+    /// 新建「未命名文件夹」（重名则「未命名文件夹 2」…）
+    func createUntitledFolder(in dir: URL) throws -> URL {
+        let newURL = uniqueURL("未命名文件夹", in: dir)
         try FileManager.default.createDirectory(at: newURL, withIntermediateDirectories: false)
         return newURL
     }

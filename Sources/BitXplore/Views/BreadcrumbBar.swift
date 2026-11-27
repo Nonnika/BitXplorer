@@ -117,25 +117,13 @@ struct BreadcrumbBar: View {
             return
         }
 
-        let expanded = (raw as NSString).expandingTildeInPath
-        let resolvedURL: URL
-        if expanded.hasPrefix("/") {
-            resolvedURL = URL(fileURLWithPath: expanded).standardizedFileURL
-        } else {
-            resolvedURL = URL(fileURLWithPath: expanded, relativeTo: currentURL).standardizedFileURL
-        }
-
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: resolvedURL.path, isDirectory: &isDir) else {
+        guard let resolvedURL = FileSystemService.resolve(raw, relativeTo: currentURL) else {
             pathNotFound = true
             NSSound.beep()
             return
         }
-
-        let destination = isDir.boolValue ? resolvedURL : resolvedURL.deletingLastPathComponent()
-        if destination.standardizedFileURL.path != currentURL.standardizedFileURL.path {
-            onNavigate(destination)
-        }
+        // 文件夹进入；文件进入其所在目录并选中
+        onNavigate(resolvedURL)
         cancelEdit()
     }
 

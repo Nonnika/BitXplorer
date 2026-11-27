@@ -10,6 +10,8 @@ struct MainContentView: View {
     @Binding var splitFraction: CGFloat
     /// ⌘F 递增，聚焦工具栏搜索框
     let searchFocusTrigger: Int
+    /// ⌘⌥P 递增，开/关命令面板
+    let paletteTrigger: Int
     @Binding var clipboardURLs: [URL]
     @Binding var clipboardIsCut: Bool
     @Binding var showHiddenFiles: Bool
@@ -22,6 +24,7 @@ struct MainContentView: View {
     /// SwiftUI 的 FocusState 无法可靠地把 AppKit 第一响应者移到 Table 上，由 PaneProbe 直接 makeFirstResponder
     @State private var focusRequest = 1
     @FocusState private var searchFocused: Bool
+    @State private var showPalette = false
 
     private var active: Binding<Pane> { $panes[activePane] }
 
@@ -109,12 +112,29 @@ struct MainContentView: View {
                 Button(action: onNewFolder) {
                     Label("新建文件夹", systemImage: "folder.badge.plus")
                 }
-                .help("新建文件夹 (⌘⇧N)")
+                .help("新建文件夹 (⌘N)")
             }
         }
         .searchable(text: active.searchText, placement: .toolbar, prompt: "搜索")
         .searchFocused($searchFocused)
         .onChange(of: searchFocusTrigger) { searchFocused = true }
+        .overlay(alignment: .top) {
+            if showPalette {
+                ZStack(alignment: .top) {
+                    // 点面板外任意处关闭
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { showPalette = false }
+                    CommandPalette(isPresented: $showPalette, currentURL: active.wrappedValue.currentURL) { url in
+                        active.wrappedValue.open(url)
+                    }
+                    .padding(.top, 48)
+                }
+            }
+        }
+        .onChange(of: paletteTrigger) { showPalette.toggle() }
+        // 面板关闭后把键盘焦点还给活动栏
+        .onChange(of: showPalette) { if !showPalette { focusRequest += 1 } }
         // 开/关双栏（⌘D/⌘W）后把键盘焦点交给活动栏
         .onChange(of: isDualPane) { focusRequest += 1 }
     }
@@ -138,6 +158,7 @@ struct MainContentView: View {
                 activePane = 1 - index
                 focusRequest += 1
             } : nil,
+            onTableRebuilt: { if activePane == index { focusRequest += 1 } },
             focusRequest: focusRequest,
             wantsFocus: activePane == index,
             clipboardURLs: $clipboardURLs,
@@ -159,6 +180,8 @@ struct PaneView: View {
     /// ⌘←/⌘→ 切换到目标栏，单栏时返回 false 不拦截按键
     let onSwitch: (Int) -> Bool
     let onOpenInOtherPane: ((URL) -> Void)?
+    /// 换目录/改搜索会重建 Table（见 FileListView 的 .id），旧表上的键盘焦点随之丢失，需要交还给新表
+    let onTableRebuilt: () -> Void
     let focusRequest: Int
     let wantsFocus: Bool
     @Binding var clipboardURLs: [URL]
@@ -220,7 +243,7 @@ struct PaneView: View {
                 BreadcrumbBar(
                     currentURL: $pane.currentURL,
                     isEditingPath: $pane.isEditingPath,
-                    onNavigate: { pane.navigate(to: $0) }
+                    onNavigate: { pane.open($0) }
                 )
                 Divider()
                 statusBar
@@ -236,8 +259,11 @@ struct PaneView: View {
         // 返回上一级时选中刚离开的文件夹，方便继续用方向键浏览
         .onChange(of: pane.currentURL) { old, new in
             let cameFrom = old.deletingLastPathComponent().standardizedFileURL == new.standardizedFileURL ? old : nil
-            loadFiles(clearSelection: true, select: cameFrom)
+            loadFiles(clearSelection: true, select: pane.pendingSelection ?? cameFrom)
+            pane.pendingSelection = nil
+            onTableRebuilt()
         }
+        .onChange(of: pane.searchText) { onTableRebuilt() }
         .onChange(of: showHiddenFiles) { loadFiles(clearSelection: false) }
         .onChange(of: refreshTick) { loadFiles(clearSelection: false) }
         .onAppear { loadFiles(clearSelection: true) }
@@ -288,6 +314,8 @@ struct PaneView: View {
                 try service.listDirectory(at: url, showHidden: showHidden)
             }.value) ?? []
             guard token == loadToken else { return }
+            // 诊断：排查 Table 崩溃时，终端里能看到崩溃前最后的列表变化
+            print("[BitXplore] load \(url.path): \(pane.files.count) → \(items.count)")
             pane.files = items
             if let select, let match = items.first(where: { $0.url.standardizedFileURL == select.standardizedFileURL }) {
                 pane.selectedURLs = [match.url]
@@ -338,6 +366,7 @@ struct PaneView: View {
                         guard url == pane.currentURL, updated != pane.files else { return }
                         let existing = Set(updated.map(\.url))
                         withAnimation(.easeInOut(duration: 0.1)) {
+                            print("[BitXplore] watch \(url.path): \(pane.files.count) → \(updated.count)")
                             pane.files = updated
                             pane.selectedURLs = pane.selectedURLs.intersection(existing)
                         }
@@ -355,7 +384,8 @@ struct PaneView: View {
 
 /// 覆盖整个面板的透明探针（hitTest 返回 nil，不拦截任何点击）：
 /// 1. 本地监听鼠标按下，落在本栏范围内即回调激活；
-/// 2. 收到新的 focusRequest 且本栏是目标时，找到本栏范围内的 NSTableView 并设为第一响应者
+/// 2. 收到新的 focusRequest 且本栏是目标时，找到本栏范围内的 NSTableView 并设为第一响应者；
+/// 3. 窗口内无焦点时按 ↑↓，聚焦本栏（活动栏）列表并选中可见的第一行
 private struct PaneProbe: NSViewRepresentable {
     let onMouseDown: () -> Void
     let focusRequest: Int
@@ -370,6 +400,7 @@ private struct PaneProbe: NSViewRepresentable {
     final class ProbeView: NSView {
         var onMouseDown: (() -> Void)?
         private var monitor: Any?
+        private var keyMonitor: Any?
         private var focusRequest = 0
         private var handledRequest = 0
         private var wantsFocus = false
@@ -388,15 +419,49 @@ private struct PaneProbe: NSViewRepresentable {
             handledRequest = focusRequest
             // 等 SwiftUI 本轮布局完成（新开的右栏此刻还没放进窗口）
             DispatchQueue.main.async { [weak self] in
-                guard let self, let window = self.window else { return }
-                let paneRect = self.convert(self.bounds, to: nil)
-                let table = Self.tables(in: window.contentView).first { table in
-                    let box = table.enclosingScrollView ?? table
-                    let frame = box.convert(box.bounds, to: nil)
-                    return paneRect.contains(NSPoint(x: frame.midX, y: frame.midY))
-                }
-                if let table { window.makeFirstResponder(table) }
+                guard let self, let window = self.window, let table = self.paneTable(),
+                      !(window.firstResponder is NSText)  // 正在搜索框/路径栏/重命名里输入时不抢焦点
+                else { return }
+                window.makeFirstResponder(table)
             }
+        }
+
+        /// 本栏范围内的文件列表（SwiftUI Table 底层的 NSTableView）
+        private func paneTable() -> NSTableView? {
+            guard let window else { return nil }
+            let paneRect = convert(bounds, to: nil)
+            return Self.tables(in: window.contentView).first { table in
+                let box = table.enclosingScrollView ?? table
+                let frame = box.convert(box.bounds, to: nil)
+                return paneRect.contains(NSPoint(x: frame.midX, y: frame.midY))
+            }
+        }
+
+        /// 窗口里没有任何列表/输入框获得焦点时按 ↑↓：聚焦活动栏列表并选中可见的第一行。
+        /// 侧边栏（NSOutlineView 也是 NSTableView）、文件列表或输入框有焦点时不干预
+        private func handleArrowWithoutFocus(_ event: NSEvent) -> Bool {
+            guard wantsFocus, let window, event.window === window, window.isKeyWindow,
+                  event.keyCode == 125 || event.keyCode == 126,  // ↓ ↑
+                  event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                  !(window.firstResponder is NSText), !(window.firstResponder is NSTableView),
+                  let table = paneTable(), table.numberOfRows > 0
+            else { return false }
+
+            // 可见区域要扣掉被工具栏/表头遮住的内容边距
+            var visible = table.visibleRect
+            if let insets = table.enclosingScrollView?.contentInsets {
+                visible.origin.y += insets.top
+                visible.size.height -= insets.top + insets.bottom
+            }
+            let rows = table.rows(in: visible)
+            var row = max(rows.location, 0)
+            if row < table.numberOfRows, table.rect(ofRow: row).minY < visible.minY, row + 1 < table.numberOfRows {
+                row += 1  // 第一行只露出一部分时取下一行
+            }
+            window.makeFirstResponder(table)
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            table.scrollRowToVisible(row)
+            return true
         }
 
         private static func tables(in view: NSView?) -> [NSTableView] {
@@ -408,8 +473,14 @@ private struct PaneProbe: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             focusIfNeeded()
             if let monitor { NSEvent.removeMonitor(monitor) }
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
             monitor = nil
+            keyMonitor = nil
             guard window != nil else { return }
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                let handled = MainActor.assumeIsolated { self?.handleArrowWithoutFocus(event) ?? false }
+                return handled ? nil : event
+            }
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
                 MainActor.assumeIsolated {
                     if let self, event.window === self.window,

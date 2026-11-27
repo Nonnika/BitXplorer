@@ -5,8 +5,6 @@ import AppKit
 struct AboutView: View {
     var body: some View {
         VStack(spacing: 16) {
-            Spacer().frame(height: 8)
-
             Image(nsImage: NSApp.applicationIconImage ?? NSImage())
                 .resizable()
                 .frame(width: 80, height: 80)
@@ -14,35 +12,23 @@ struct AboutView: View {
             Text("BitXplore")
                 .font(.title2.bold())
 
-            Text("版本 \(AppVersion.marketing) (Build \(AppVersion.build))")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Text("一个基于 SwiftUI 的 macOS 文件管理器，\n支持面包屑导航、树形侧边栏、多选和键盘操作。\n本项目是 cnwutianhao/finder-explorer 的分支。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-
-            Text("需 macOS 27.0 或更高版本")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 4) {
-                Link("Syrnaxei",
-                     destination: URL(string: "https://github.com/Syrnaxei")!)
-                    .font(.caption2)
-                Text("·")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Link("项目主页",
-                     destination: URL(string: "https://github.com/Nonnika/BitXplorer")!)
-                    .font(.caption2)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("版本 \(AppVersion.marketing) (Build \(AppVersion.build))")
+                Text("需 macOS 27.0 或更高版本")
             }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer().frame(height: 8)
+            HStack(spacing: 6) {
+                Link("Nonnika.Y", destination: URL(string: "https://github.com/Nonnika?tab=overview")!)
+                Text("·").foregroundStyle(.secondary)
+                Link("项目主页", destination: URL(string: "https://github.com/Nonnika/BitXplorer")!)
+            }
+            .font(.callout)
         }
-        .frame(width: 380, height: 340)
+        .padding(28)
+        .frame(width: 340)
     }
 }
 
@@ -63,6 +49,7 @@ struct BitXploreApp: App {
     @State private var isDualPane = false
     @State private var splitFraction: CGFloat = 0.5
     @State private var searchFocusTrigger = 0
+    @State private var paletteTrigger = 0
     @State private var clipboardURLs: [URL] = []
     @State private var clipboardIsCut = false
     @State private var showHiddenFiles = false
@@ -141,6 +128,7 @@ struct BitXploreApp: App {
                     isDualPane: isDualPane,
                     splitFraction: $splitFraction,
                     searchFocusTrigger: searchFocusTrigger,
+                    paletteTrigger: paletteTrigger,
                     clipboardURLs: $clipboardURLs,
                     clipboardIsCut: $clipboardIsCut,
                     showHiddenFiles: $showHiddenFiles,
@@ -191,7 +179,7 @@ struct BitXploreApp: App {
                 Button("新建文件夹") {
                     active.newFolderTrigger += 1
                 }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .keyboardShortcut("n", modifiers: .command)
             }
 
             CommandGroup(after: .toolbar) {
@@ -221,6 +209,9 @@ struct BitXploreApp: App {
 
                 Button("搜索") { searchFocusTrigger += 1 }
                     .keyboardShortcut("f", modifiers: .command)
+
+                Button("命令面板…") { paletteTrigger += 1 }
+                    .keyboardShortcut("p", modifiers: [.command, .option])
             }
 
             CommandMenu("前往") {
