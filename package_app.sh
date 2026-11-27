@@ -2,6 +2,9 @@
 set -e
 cd "$(dirname "$0")"
 
+# CLT 工具链缺 SwiftUIMacros 插件（macOS 27 SDK），构建统一走完整 Xcode
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+
 PROJ="$PWD"
 VERSION=$(grep 'static let marketing' "$PROJ/Sources/BitXplore/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
 BUILD_NUM=$(grep 'static let build' "$PROJ/Sources/BitXplore/AppVersion.swift" | sed 's/.*"\(.*\)"/\1/')
@@ -35,7 +38,7 @@ cat > "$1" << PLIST
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
+    <string>27.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

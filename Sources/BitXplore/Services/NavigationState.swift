@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// 导航状态管理 — 「上一级/下一级」目录层级导航
@@ -5,7 +6,7 @@ import Foundation
 final class NavigationState: ObservableObject {
 
     /// 「上一级」离开的目录栈，供「下一级」原路返回
-    private var downStack: [URL] = []
+    @Published private(set) var downStack: [URL] = []
 
     /// 上一级：返回父目录并记住出发目录；已在根目录时返回 nil
     func goUp(from current: URL) -> URL? {

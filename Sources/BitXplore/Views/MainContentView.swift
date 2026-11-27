@@ -1,11 +1,6 @@
 import SwiftUI
 
-/// 右侧文件区固定配色：深灰背景 #1D1D1E（不随系统外观切换）
-extension Color {
-    static let panelBackground = Color(red: 29 / 255, green: 29 / 255, blue: 30 / 255)
-}
-
-/// 主内容视图 - 整合面包屑、搜索、文件列表、状态栏
+/// 主内容视图 - 整合原生工具栏、搜索、文件列表、路径栏与状态栏
 struct MainContentView: View {
     @Binding var currentURL: URL
     @Binding var files: [FileItem]
@@ -13,23 +8,35 @@ struct MainContentView: View {
     @Binding var clipboardURLs: [URL]
     @Binding var clipboardIsCut: Bool
     @Binding var showHiddenFiles: Bool
-    let navigationState: NavigationState
+    @Binding var isEditingPath: Bool
+    @ObservedObject var navigationState: NavigationState
     let fsService: FileSystemService
     /// App 级操作（粘贴/废纸篓）完成后递增，触发重新加载
     let refreshTick: Int
+    let newFolderTrigger: Int
+    let renameTrigger: Int
+    let onNewFolder: () -> Void
 
     @State private var isLoading = false
     @State private var loadToken = 0
     @State private var searchText = ""
-    @State private var isRenaming = false
-    @State private var renameTarget: URL?
-    @State private var renameText = ""
     @State private var watcherSource: DispatchSourceFileSystemObject?
     @State private var watcherPath: String?
     @State private var watcherDebounce: DispatchWorkItem?
-    /// 搜索展开态与输入框焦点
-    @State private var isSearching = false
-    @FocusState private var searchFocused: Bool
+
+    private var currentFolderName: String {
+        currentURL.path == "/" ? "Macintosh HD" : currentURL.lastPathComponent
+    }
+
+    private var ancestorURLs: [URL] {
+        var result: [URL] = []
+        var url = currentURL.standardizedFileURL
+        while url.path != "/" {
+            url = url.deletingLastPathComponent()
+            result.append(url)
+        }
+        return result
+    }
 
     /// 搜索过滤后的文件列表
     var displayedFiles: [FileItem] {
@@ -44,208 +51,143 @@ struct MainContentView: View {
         return (selected.count, totalSize)
     }
 
+    private func navigate(to url: URL) {
+        navigationState.invalidate()
+        currentURL = url
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            // 文件列表（仅在首载/空目录加载时展示 spinner，避免整块视图反复重建）
+        Group {
             if isLoading && files.isEmpty {
-                Spacer()
                 ProgressView("正在加载...")
-                Spacer()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 FileListView(
-                    files: Binding(get: { displayedFiles }, set: { files = $0 }),
+                    files: displayedFiles,
+                    searchText: searchText,
                     selectedURLs: $selectedURLs,
                     clipboardURLs: $clipboardURLs,
                     clipboardIsCut: $clipboardIsCut,
                     currentURL: $currentURL,
                     showHiddenFiles: $showHiddenFiles,
-                    onNavigate: { url in
-                        navigationState.invalidate()
-                        currentURL = url
-                    },
+                    onNavigate: navigate(to:),
                     fsService: fsService,
-                    isRenaming: $isRenaming,
-                    renameTarget: $renameTarget,
-                    renameText: $renameText,
-                    onRefresh: { loadFiles() }
+                    onRefresh: { loadFiles(clearSelection: false) },
+                    newFolderTrigger: newFolderTrigger,
+                    renameTrigger: renameTrigger
                 )
             }
-
-            // 状态栏
-            statusBar
         }
-        // 工具栏放在 .environment(\.colorScheme, .dark) 之前：
-        // 标题栏随系统外观，不被详情区的强制深色污染（浅色模式下文字/玻璃才是浅色版）
-        .toolbar {
-            // 面包屑地址栏：放进标题栏，与导航按钮同在左侧；
-            // 默认折叠成当前目录名，点击展开完整路径。
-            // sharedBackgroundVisibility(.hidden) 退出工具栏的共享玻璃底（新设计默认给每个 item 套玻璃）
-            ToolbarItem(placement: .navigation) {
-                BreadcrumbBar(currentURL: $currentURL, onNavigate: { url in
-                    navigationState.invalidate()
-                    currentURL = url
-                })
-                .frame(height: 26)
+        .navigationTitle(currentFolderName)
+        .navigationDocument(currentURL)
+        .toolbarTitleMenu {
+            ForEach(ancestorURLs, id: \.self) { url in
+                Button {
+                    navigate(to: url)
+                } label: {
+                    Label(
+                        url.path == "/" ? "Macintosh HD" : url.lastPathComponent,
+                        systemImage: url.path == "/" ? "internaldrive" : "folder"
+                    )
+                }
             }
-            .sharedBackgroundVisibility(.hidden)
 
-            // 搜索：默认一颗玻璃放大镜按钮（与返回/前进同材质），点击展开成搜索框，
-            // 再点或 Esc 收回。macOS 的 .searchable 没有展开交互（那是 iOS 行为），故自绘。
+            if !ancestorURLs.isEmpty {
+                Divider()
+            }
+
+            Button("前往文件夹…") {
+                isEditingPath = true
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button {
+                    if let url = navigationState.goUp(from: currentURL) {
+                        currentURL = url
+                    }
+                } label: {
+                    Label("上一级目录", systemImage: "chevron.left")
+                }
+                .disabled(!navigationState.canGoUp(current: currentURL))
+                .help("上一级目录 (⌘↑)")
+
+                Button {
+                    if let url = navigationState.goDown() {
+                        currentURL = url
+                    }
+                } label: {
+                    Label("下一级目录", systemImage: "chevron.right")
+                }
+                .disabled(!navigationState.canGoDown())
+                .help("下一级目录 (⌘↓)")
+            }
+
             ToolbarItem(placement: .primaryAction) {
-                HStack(spacing: 4) {
-                    Button {
-                        if isSearching {
-                            collapseSearch()
-                        } else {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isSearching = true }
-                            searchFocused = true
-                        }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 26, height: 26)
-                    }
-                    .buttonStyle(.plain)
-                    .help(isSearching ? "关闭搜索" : "搜索")
-
-                    if isSearching {
-                        TextField("搜索...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 13))
-                            .frame(width: 140)
-                            .focused($searchFocused)
-                            .onExitCommand { collapseSearch() }
-
-                        if !searchText.isEmpty {
-                            Button(action: { searchText = "" }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                Button(action: onNewFolder) {
+                    Label("新建文件夹", systemImage: "folder.badge.plus")
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-                .glassEffect(.regular.interactive(), in: Capsule())
+                .help("新建文件夹 (⌘⇧N)")
             }
         }
-        // 上一级/下一级：一颗精确的 Capsule 玻璃罩住两个按钮（glassEffectUnion 的液态过渡
-        // 在两颗圆片之间会鼓包，弃用；.interactive() 玻璃的系统悬停/按压高亮保留）
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                HStack(spacing: 0) {
-                    Button(action: {
-                        if let url = navigationState.goUp(from: currentURL) {
-                            currentURL = url
-                        }
-                    }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 30, height: 26)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!navigationState.canGoUp(current: currentURL))
-                    .help("上一级目录")
-
-                    Rectangle()
-                        .fill(Color.primary.opacity(0.15))
-                        .frame(width: 1, height: 18)
-
-                    Button(action: {
-                        if let url = navigationState.goDown() {
-                            currentURL = url
-                        }
-                    }) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 30, height: 26)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!navigationState.canGoDown())
-                    .help("下一级目录")
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-                .glassEffect(.regular.interactive(), in: Capsule())
+        .searchable(text: $searchText, placement: .toolbar, prompt: "搜索")
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .safeAreaBar(edge: .bottom) {
+            VStack(spacing: 0) {
+                BreadcrumbBar(
+                    currentURL: $currentURL,
+                    isEditingPath: $isEditingPath,
+                    onNavigate: navigate(to:)
+                )
+                Divider()
+                statusBar
             }
         }
-        .simultaneousGesture(TapGesture().onEnded { collapseSearch() })
-        .background(Color.panelBackground)
-        // 顶栏背景带：AppKit NSVisualEffectView（.headerView 材质，与表头同款），
-        // 必须盖在内容之上（overlay）withinWindow 才能模糊钻进来的滚动行；垫在
-        // .background 里只会糊到深色底色（之前一直出不来模糊的原因）
-        .overlay(alignment: .top) {
-            GeometryReader { proxy in
-                ToolbarBlurView()
-                    .frame(height: proxy.safeAreaInsets.top)
-            }
-            .ignoresSafeArea(edges: .top)
-            .allowsHitTesting(false)
-        }
-        .environment(\.colorScheme, .dark)
-        .onChange(of: showHiddenFiles) { loadFiles() }
-        .onChange(of: currentURL) { loadFiles() }
-        .onChange(of: refreshTick) { loadFiles() }
-        .onAppear { loadFiles() }
-    }
-
-    /// 返回/前进：统一几何的玻璃胶囊
-    /// 返回/前进：统一几何的玻璃胶囊，按压整颗发光
-    /// 收回搜索框并清空（放大镜再点 / Esc / 点击详情区任意处）
-    private func collapseSearch() {
-        guard isSearching else { return }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isSearching = false }
-        searchFocused = false
-        searchText = ""
+        .onChange(of: currentURL) { loadFiles(clearSelection: true) }
+        .onChange(of: showHiddenFiles) { loadFiles(clearSelection: false) }
+        .onChange(of: refreshTick) { loadFiles(clearSelection: false) }
+        .onAppear { loadFiles(clearSelection: true) }
+        .onDisappear { stopWatcher() }
     }
 
     private var statusBar: some View {
-        HStack {
-            Text("\(files.count) 个项目")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
+        HStack(spacing: 8) {
+            if searchText.isEmpty {
+                Text("\(files.count) 个项目")
+            } else {
+                Text("\(displayedFiles.count) / \(files.count) 个项目")
+            }
 
             if selectedStats.count > 0 {
-                Text("  |  已选 \(selectedStats.count) 个")
-                    .font(.system(size: 11))
-                    .foregroundColor(.accentColor)
+                Text("·")
+                Text("已选 \(selectedStats.count) 个")
+                    .foregroundStyle(.primary)
 
                 if selectedStats.size > 0 {
                     Text(FileItem.bytes(selectedStats.size))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
                 }
             }
 
             Spacer()
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 3)
-        .glassEffect(.regular, in: Rectangle())
+        .font(.caption)
+        .monospacedDigit()
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
     }
 
-/// 顶栏背景：与表头同款 NSVisualEffectView，盖在滚动内容之上做窗内模糊
-private struct ToolbarBlurView: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .headerView
-        view.blendingMode = .withinWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
-}
-
-/// 后台线程枚举目录；token 使快速连续导航时旧的慢结果被丢弃
-    private func loadFiles() {
+    /// 后台线程枚举目录；token 使快速连续导航时旧的慢结果被丢弃
+    private func loadFiles(clearSelection: Bool) {
         loadToken += 1
         let token = loadToken
         let url = currentURL
         let showHidden = showHiddenFiles
         let service = fsService
+        if clearSelection {
+            selectedURLs = []
+            searchText = ""
+        }
         isLoading = true
         Task {
             let items = (try? await Task.detached(priority: .userInitiated) {
@@ -253,20 +195,29 @@ private struct ToolbarBlurView: NSViewRepresentable {
             }.value) ?? []
             guard token == loadToken else { return }
             files = items
-            selectedURLs = []
-            searchText = ""
+            if !clearSelection {
+                let existing = Set(items.map(\.url))
+                selectedURLs = selectedURLs.intersection(existing)
+            }
             isLoading = false
             startWatcher()
         }
+    }
+
+    /// 停止并清理目录监视器
+    private func stopWatcher() {
+        watcherDebounce?.cancel()
+        watcherDebounce = nil
+        watcherSource?.cancel()
+        watcherSource = nil
+        watcherPath = nil
     }
 
     /// 监视当前目录变化，外部文件新增/删除时自动刷新列表
     private func startWatcher() {
         let path = currentURL.path
         guard watcherPath != path else { return }
-        watcherDebounce?.cancel()
-        watcherSource?.cancel()
-        watcherSource = nil
+        stopWatcher()
         watcherPath = path
 
         let fd = open(path, O_EVTONLY)
@@ -288,9 +239,11 @@ private struct ToolbarBlurView: NSViewRepresentable {
                 Task.detached(priority: .utility) {
                     let updated = (try? service.listDirectory(at: url, showHidden: showHidden)) ?? []
                     await MainActor.run {
-                        guard url == currentURL, updated.map(\.url) != files.map(\.url) else { return }
+                        guard url == currentURL, updated != files else { return }
+                        let existing = Set(updated.map(\.url))
                         withAnimation(.easeInOut(duration: 0.1)) {
                             files = updated
+                            selectedURLs = selectedURLs.intersection(existing)
                         }
                     }
                 }

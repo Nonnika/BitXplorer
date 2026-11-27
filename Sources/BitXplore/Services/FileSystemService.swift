@@ -1,9 +1,8 @@
 import Foundation
 import AppKit
 
-/// 文件系统服务 - 负责读取目录内容
-/// 无状态，仅为让后台线程调用通过 Swift 6 严格并发检查
-final class FileSystemService: @unchecked Sendable {
+/// 文件系统服务 - 无状态，负责目录读取与文件操作
+final class FileSystemService: Sendable {
 
     /// 读取指定路径下的文件列表（同步、可重入，调用方负责放后台线程）
     func listDirectory(at url: URL, showHidden: Bool = false) throws -> [FileItem] {

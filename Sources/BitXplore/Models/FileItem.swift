@@ -1,8 +1,8 @@
 import Foundation
 
 /// 文件/文件夹的数据模型
-struct FileItem: Identifiable, Equatable {
-    /// 以 URL 作为行身份：刷新后 LazyVStack 按 URL 复用行，滚动位置不重置
+struct FileItem: Identifiable, Hashable, Sendable {
+    /// 以 URL 作为行身份：刷新后按 URL 复用行，滚动位置与选区不重置
     var id: URL { url }
 
     let url: URL
@@ -15,7 +15,6 @@ struct FileItem: Identifiable, Equatable {
     init(url: URL) {
         self.url = url
         self.name = url.lastPathComponent
-        self.isDirectory = url.hasDirectoryPath
 
         let resourceValues = try? url.resourceValues(forKeys: [
             .fileSizeKey,
@@ -23,6 +22,7 @@ struct FileItem: Identifiable, Equatable {
             .isDirectoryKey
         ])
 
+        self.isDirectory = resourceValues?.isDirectory ?? url.hasDirectoryPath
         self.size = resourceValues?.fileSize.map(Int64.init)
         self.modificationDate = resourceValues?.contentModificationDate
         self.fileExtension = url.pathExtension
@@ -66,8 +66,60 @@ struct FileItem: Identifiable, Equatable {
         if fileExtension.isEmpty { return "文件" }
         return fileExtension.uppercased() + " 文件"
     }
+}
 
-    static func == (lhs: FileItem, rhs: FileItem) -> Bool {
-        lhs.url == rhs.url
+/// SwiftUI Table 列排序比较器
+struct FileSortComparator: SortComparator, Hashable, Sendable {
+    enum Key: Hashable, Sendable {
+        case name
+        case date
+        case kind
+        case size
+    }
+
+    var key: Key
+    var order: SortOrder = .forward
+
+    init(_ key: Key, order: SortOrder = .forward) {
+        self.key = key
+        self.order = order
+    }
+
+    func compare(_ lhs: FileItem, _ rhs: FileItem) -> ComparisonResult {
+        if key == .name && lhs.isDirectory != rhs.isDirectory {
+            return lhs.isDirectory ? .orderedAscending : .orderedDescending
+        }
+
+        let base: ComparisonResult
+        switch key {
+        case .name:
+            base = lhs.name.localizedStandardCompare(rhs.name)
+        case .date:
+            let lDate = lhs.modificationDate ?? .distantPast
+            let rDate = rhs.modificationDate ?? .distantPast
+            if lDate != rDate {
+                base = lDate < rDate ? .orderedAscending : .orderedDescending
+            } else {
+                base = lhs.name.localizedStandardCompare(rhs.name)
+            }
+        case .kind:
+            let kindOrder = lhs.fileTypeDisplay.localizedStandardCompare(rhs.fileTypeDisplay)
+            base = kindOrder != .orderedSame ? kindOrder : lhs.name.localizedStandardCompare(rhs.name)
+        case .size:
+            let lSize: Int64 = lhs.isDirectory ? -1 : (lhs.size ?? -1)
+            let rSize: Int64 = rhs.isDirectory ? -1 : (rhs.size ?? -1)
+            if lSize != rSize {
+                base = lSize < rSize ? .orderedAscending : .orderedDescending
+            } else {
+                base = lhs.name.localizedStandardCompare(rhs.name)
+            }
+        }
+
+        guard order == .reverse else { return base }
+        switch base {
+        case .orderedAscending: return .orderedDescending
+        case .orderedDescending: return .orderedAscending
+        case .orderedSame: return .orderedSame
+        }
     }
 }

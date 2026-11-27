@@ -1,98 +1,83 @@
 import SwiftUI
 
-/// 目录树侧边栏
+/// 原生 macOS 27 目录树侧边栏
 struct SidebarTreeView: View {
     let roots: [TreeNode]
+    @Binding var currentURL: URL
     let onSelect: (URL) -> Void
 
-    @State private var selectedURL: URL?
+    @State private var selection: TreeNode.ID?
 
     var body: some View {
-        List(roots) { node in
-            SidebarTreeNodeRow(
-                node: node,
-                onSelect: { url in
-                    selectedURL = url
-                    onSelect(url)
-                },
-                selectedURL: selectedURL
-            )
-        }
-        .listStyle(.sidebar)
-    }
-}
-
-struct SidebarTreeNodeRow: View {
-    @ObservedObject var node: TreeNode
-    let onSelect: (URL) -> Void
-    let selectedURL: URL?
-
-    private var isSelected: Bool { node.url == selectedURL }
-
-    /// 仿 Finder 的灰色选中高亮；用 listRowBackground 铺满整行：
-    /// 左侧覆盖展开箭头，上下与相邻行相接
-    private var rowHighlight: some View {
-        RoundedRectangle(cornerRadius: 5)
-            .fill(Color.primary.opacity(isSelected ? 0.12 : 0))
-    }
-
-    var body: some View {
-        Group {
-            if node.children == nil && node.isDirectory {
-                // 尚未加载子节点
-                HStack {
-                    Image(systemName: "folder")
-                        .foregroundColor(.accentColor)
-                    Text(node.name)
-                        .font(.system(size: 13))
-                    Spacer()
-
-                    if node.isLoading {
+        List(roots, children: \.children, selection: $selection) { node in
+            Group {
+                if node.isLoading {
+                    HStack(spacing: 6) {
+                        Label(node.name, systemImage: node.symbolName)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
                         ProgressView()
-                            .scaleEffect(0.5)
-                            .frame(width: 12, height: 12)
+                            .controlSize(.mini)
                     }
+                } else {
+                    Label(node.name, systemImage: node.symbolName)
+                        .lineLimit(1)
                 }
-                .contentShape(Rectangle())
-                .padding(.vertical, 3)
-                .onTapGesture { onSelect(node.url) }
-                .task {
-                    await node.loadChildren()
-                }
-            } else if let children = node.children, !children.isEmpty {
-                // 有子文件夹
-                DisclosureGroup(
-                    content: {
-                        ForEach(children) { child in
-                            SidebarTreeNodeRow(node: child, onSelect: onSelect, selectedURL: selectedURL)
-                        }
-                    },
-                    label: {
-                        HStack {
-                            Image(systemName: "folder")
-                                .foregroundColor(.accentColor)
-                            Text(node.name)
-                                .font(.system(size: 13))
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .padding(.vertical, 3)
-                        .onTapGesture { onSelect(node.url) }
-                    }
-                )
-            } else {
-                // 空文件夹
-                HStack {
-                    Image(systemName: "folder")
-                        .foregroundColor(.secondary)
-                    Text(node.name)
-                        .font(.system(size: 13))
-                }
-                .contentShape(Rectangle())
-                .padding(.vertical, 3)
-                .onTapGesture { onSelect(node.url) }
+            }
+            .task(id: node.id) {
+                await node.loadChildren()
             }
         }
-        .listRowBackground(rowHighlight)
+        .listStyle(.sidebar)
+        .onAppear {
+            syncSelectionFromCurrentURL()
+        }
+        .onChange(of: currentURL) {
+            syncSelectionFromCurrentURL()
+        }
+        .onChange(of: selection) { _, newID in
+            guard let id = newID,
+                  let node = findNode(id: id, in: roots),
+                  node.url.standardizedFileURL.path != currentURL.standardizedFileURL.path else {
+                return
+            }
+            onSelect(node.url)
+        }
+    }
+
+    private func syncSelectionFromCurrentURL() {
+        let targetPath = currentURL.standardizedFileURL.path
+        if let currentID = selection,
+           let currentNode = findNode(id: currentID, in: roots),
+           currentNode.url.standardizedFileURL.path == targetPath {
+            return
+        }
+        selection = findNode(matchingPath: targetPath, in: roots)?.id
+    }
+
+    private func findNode(id: TreeNode.ID, in nodes: [TreeNode]) -> TreeNode? {
+        for node in nodes {
+            if node.id == id {
+                return node
+            }
+            if let children = node.children,
+               let match = findNode(id: id, in: children) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func findNode(matchingPath path: String, in nodes: [TreeNode]) -> TreeNode? {
+        for node in nodes {
+            if node.url.standardizedFileURL.path == path {
+                return node
+            }
+            if let children = node.children,
+               let match = findNode(matchingPath: path, in: children) {
+                return match
+            }
+        }
+        return nil
     }
 }
