@@ -28,6 +28,16 @@ struct FileItem: Identifiable, Hashable, Sendable {
         self.fileExtension = url.pathExtension
     }
 
+    /// 不在磁盘上的条目（zip 包内）
+    init(url: URL, isDirectory: Bool, size: Int64?, modificationDate: Date?) {
+        self.url = url
+        self.name = url.lastPathComponent
+        self.isDirectory = isDirectory
+        self.size = size
+        self.modificationDate = modificationDate
+        self.fileExtension = url.pathExtension
+    }
+
     @MainActor private static let byteFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file

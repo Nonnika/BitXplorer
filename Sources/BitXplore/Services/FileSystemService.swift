@@ -6,6 +6,19 @@ final class FileSystemService: Sendable {
 
     /// 读取指定路径下的文件列表（同步、可重入，调用方负责放后台线程）
     func listDirectory(at url: URL, showHidden: Bool = false) throws -> [FileItem] {
+        let items: [FileItem]
+        if let (zip, inner) = ZipArchive.split(url) {
+            items = try ZipArchive.list(zip: zip, inner: inner, showHidden: showHidden)
+        } else {
+            items = try listRealDirectory(at: url, showHidden: showHidden)
+        }
+        return items.sorted { lhs, rhs in
+            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private func listRealDirectory(at url: URL, showHidden: Bool) throws -> [FileItem] {
         let keys: [URLResourceKey] = [
             .fileSizeKey,
             .contentModificationDateKey,
@@ -23,10 +36,6 @@ final class FileSystemService: Sendable {
         )
         .filter { showHidden || !$0.lastPathComponent.hasPrefix(".") }
         .map { FileItem(url: $0) }
-        .sorted { lhs, rhs in
-            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
-            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-        }
     }
 
     /// 将文件移动到废纸篓（先弹窗确认），返回失败的个数
@@ -74,9 +83,26 @@ final class FileSystemService: Sendable {
         NSWorkspace.shared.open(url)
     }
 
-    /// 用默认应用打开文件
+    /// 磁盘上可直接访问的 URL：zip 包内文件先解出到临时目录，其余原样返回
+    /// ponytail: 调用方在主线程同步解压，包内单个大文件会短暂卡顿；需要时挪到后台并显示进度
+    func materialize(_ url: URL) throws -> URL {
+        guard let (zip, inner) = ZipArchive.split(url), !inner.isEmpty else { return url }
+        return try ZipArchive.extract(zip: zip, inner: inner)
+    }
+
+    /// 用默认应用打开文件；zip 包内文件先解出到临时目录再打开
+    @MainActor
     func openFile(_ url: URL) {
-        NSWorkspace.shared.open(url)
+        do {
+            NSWorkspace.shared.open(try materialize(url))
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "无法打开「\(url.lastPathComponent)」"
+            alert.informativeText = error as? ZipArchive.ZipError == .encrypted
+                ? "该文件已加密，请用其他工具解压。"
+                : "压缩包已损坏或使用了不支持的压缩方式。"
+            alert.runModal()
+        }
     }
 
     /// 复制路径到剪贴板
