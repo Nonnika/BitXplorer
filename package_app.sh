@@ -49,11 +49,16 @@ PLIST
 # 组装 BitXplore.app；给 SUFFIX 时打包成发布用 dmg（内含 Applications 快捷方式）
 pack() {
     local BIN=$1 SUFFIX=$2
+    local BIN_DIR
+    BIN_DIR="$(dirname "$BIN")"
     rm -rf "$APP"
     mkdir -p "$APP/Contents/MacOS"
     mkdir -p "$APP/Contents/Resources"
     cp "$BIN" "$APP/Contents/MacOS/"
     cp "$PROJ/AppIcon.icns" "$APP/Contents/Resources/"
+    if [ -d "$BIN_DIR/BitXplore_BitXplore.bundle" ]; then
+        cp -R "$BIN_DIR/BitXplore_BitXplore.bundle" "$APP/Contents/Resources/"
+    fi
     write_plist "$APP/Contents/Info.plist"
 
     if [ -n "$SUFFIX" ]; then
@@ -72,23 +77,20 @@ pack() {
 rm -rf "$OUT"/BitXplore_*.dmg "$OUT"/BitXplore_*.zip "$APP" "$STAGE"
 rm -rf "$PROJ"/BitXplore_*.dmg "$PROJ"/BitXplore_*.zip "$PROJ"/BitXplore.app "$PROJ"/BitXplore-*.app "$PROJ"/.dmg_stage
 
-echo "=== 构建 x86_64 ==="
-swift build -c release --disable-sandbox --arch x86_64
+# Swift 6.4 SwiftBuild 统一输出到 .build/out/Products/Release，每个架构构建后立即打包避免被后续架构覆盖
+build_and_pack() {
+    local LABEL=$1 SUFFIX=$2
+    shift 2
+    echo "=== 构建并打包 ${LABEL} ==="
+    swift build -c release --disable-sandbox "$@"
+    local BIN_DIR
+    BIN_DIR=$(swift build -c release --disable-sandbox "$@" --show-bin-path)
+    pack "$BIN_DIR/BitXplore" "$SUFFIX"
+}
 
-echo "=== 构建 arm64 ==="
-swift build -c release --disable-sandbox --arch arm64
-
-echo "=== 构建 Universal ==="
-swift build -c release --disable-sandbox --arch arm64 --arch x86_64
-
-echo ""
-echo "=== 打包 ==="
-pack ".build/x86_64-apple-macosx/release/BitXplore" amd64
-pack ".build/arm64-apple-macosx/release/BitXplore" arm64
-pack ".build/apple/Products/Release/BitXplore" universal
-
-# 本地保留一份 universal 的 BitXplore.app 供直接运行
-pack ".build/apple/Products/Release/BitXplore" ""
+build_and_pack "x86_64" amd64 --arch x86_64
+build_and_pack "arm64" arm64 --arch arm64
+build_and_pack "Universal" universal --arch arm64 --arch x86_64
 
 echo ""
 echo "=== 全部完成 ==="
