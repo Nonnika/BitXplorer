@@ -1,77 +1,88 @@
 # BitXplore
 
-一个用 SwiftUI 构建的 macOS 文件管理器，风格类似 Finder，支持树形侧边栏、面包屑导航、多选、内联重命名等功能。
+原生 SwiftUI 打造的 macOS 文件管理器：双栏视图、全键盘操作、像文件夹一样浏览 ZIP，零第三方依赖。
 
-开发流程（环境准备、日常构建、代码规范、发布与升级）见 [docs/development-guide.md](docs/development-guide.md)。
+开发流程（环境准备、日常构建、代码规范、发布与升级）见 [docs/development-guide.md](docs/development-guide.md)。下载安装包请到 [Releases](https://github.com/Nonnika/BitXplorer/releases)。
 
 ## 截图
 
-![主界面](assets/screenshot-main.png)
+![双栏视图：左栏为普通文件夹，右栏直接浏览 ZIP 包内目录](assets/screenshot-main.png)
 
-## 相比访达（Finder）的优势
+![命令面板：粘贴路径回车即达](assets/screenshot-palette.png)
+
+## 相比访达（Finder）
 
 | | Finder | BitXplore |
 |---|---|---|
-| **地址栏** | 右键 Option 才能看到路径，复制不方便 | 点击空白即切换为可编辑路径，自动全选，一键复制 |
-| **目录树** | 侧边栏仅收藏夹，无完整目录树 | 完整目录树，根节点直达 /、/Users、/Applications |
-| **排序** | 分组 + 排序混合，不可按列头切换 | 四列表格，点击列头一键切换排序方向和字段 |
-| **键盘操作** | 仅 Enter 打开、Space 预览 | 全键盘：↑↓ 导航、Enter 打开、Backspace 返回上级、F2 重命名 |
-| **多列信息** | 需切换为列表视图，且不显示类型 | 名称、日期、类型、大小四列同时可见 |
-| **右键菜单** | 服务菜单分散、无废纸篓 | 集中管理：打开、重命名、Finder 中显示、复制路径、废纸篓 |
-| **目录刷新** | 有时不自动刷新 | 文件系统事件驱动，自动刷新 |
-| **跨平台潜力** | macOS 专属 | SwiftUI 跨平台架构，未来可移植 |
+| **双栏** | 只能开两个窗口或标签页来回切换 | ⌘D 一键双栏，栏间直接拖拽，⌘← / ⌘→ 切换 |
+| **ZIP** | 必须先解压才能看内容 | 像文件夹一样直接进入，包内文件可打开、预览、拖出，拖入即加入压缩包 |
+| **前往路径** | ⇧⌘G 只认标准路径 | ⌘⌥P 命令面板，带引号、`file://`、终端转义、相对路径都能识别 |
+| **键盘** | 进入文件夹要按 ⌘↓，→ 只是展开 | ↑↓ 选择、→ 进入、← 返回并选中来处、空格预览、Delete 删除 |
+| **终端** | 仅系统「终端」，且要先在「服务」中启用 | 右键「在终端中打开」，自动列出已装终端，可自选任意终端 App |
+| **复制路径** | 需按住 ⌥ 才出现 | 右键直接复制路径 / 名称，多选按行拼接 |
 
 ## 功能
 
-- **侧边栏目录树** — 异步加载，支持展开/折叠子文件夹
-- **可编辑地址栏** — 点击空白区域切换为文本输入，自动全选，支持复制/粘贴路径，Enter 导航、Esc 取消
-- **文件列表** — 名称/修改日期/类型/大小四列，支持点击列头排序
-- **搜索过滤** — 实时搜索当前目录下的文件
-- **右键菜单** — 打开、重命名、在 Finder 中显示、复制路径、移到废纸篓
-- **键盘导航** — 上下箭头选择、回车打开、Backspace 返回上级、F2 重命名
-- **多选** — ⌘ Command 追加 / ⇧ Shift 范围选择
-- **内联重命名** — 在列表中直接编辑文件名
-- **新建文件夹** — 快捷创建并自动选中
-- **复制/剪切/粘贴** — ⌘C 复制 / ⌘X 剪切 / ⌘V 粘贴，行为与 Windows 一致：复制可连续粘贴到多个目录，剪切粘贴后清空；同名自动加「副本」后缀；被剪切的文件半透明显示
-- **隐藏文件切换** — ⌘⇧. 快捷键（与系统通用快捷键一致）或右键菜单切换
-- **删除确认** — 移到废纸篓前弹窗确认，防止误删
-- **地址栏支持~** — 输入 `~/Downloads` 等路径自动展开为用户主目录
-- **前进/后退** — 导航历史栈，工具栏按钮操作
-- **废纸篓** — 菜单命令 + ⌫ Delete 快捷键
-- **目录自动刷新** — 外部文件新增/删除时列表自动更新
-- **关于窗口** — 显示版本号、作者和项目主页链接
-- **版本管理** — AppVersion.swift 统一版本号（发版时手动递增），窗口标题和打包产物自动同步
+**浏览与导航**
+- 双栏视图（⌘D），⌘W 关闭当前栏，⌘[ / ⌘] 或拖动分隔条调整宽度
+- 侧边栏「快速访问」可拖入、排序、自定义图标；「位置」为完整目录树；iCloud 文件夹显示云标
+- 命令面板（⌘⌥P）：粘贴或输入路径前往，文件路径会打开所在目录并选中该文件
+- 底部路径栏可点击跳转，也可切换为输入框编辑路径
+- 搜索（⌘F）实时过滤当前目录；列头点击排序
+- 外部增删文件时列表自动刷新
 
-## 系统
+**文件操作**
+- 拖放：拖入文件夹、拖出到 Finder / 其他 App、双栏互拖；同卷移动，跨卷或按住 ⌥ 复制
+- ⌘N 新建「未命名文件夹」并进入重命名；F2 / 右键重命名
+- ⌘C / ⌘X / ⌘V 复制剪切粘贴，同名冲突可选替换 / 保留两者 / 跳过
+- Delete 或 ⌘⌫ 移到废纸篓（先确认）
+- 空格快速查看（系统 Quick Look，从图标缩放弹出，↑↓ 切换预览）
+- 右键菜单：打开方式、在另一栏中打开、创建副本、压缩 / 解压、复制路径与名称、在 Finder 中显示、在终端中打开、添加到快速访问
 
-- macOS 14.0 (Sonoma) 或更高版本
+**ZIP**
+- 直接浏览，支持中文文件名（UTF-8 / GBK）与 ZIP64（>4 GB）
+- 包内文件可打开、预览、拷贝、拖出；拖入文件即加入压缩包
+
+**其他**
+- 首次启动引导授予「完全磁盘访问权限」（帮助菜单可再次打开）
+- 菜单与界面全中文
+
+## 快捷键
+
+| 快捷键 | 功能 |
+|---|---|
+| ↑ ↓ | 选择文件（无焦点时从可见的第一个开始） |
+| → / ← | 进入文件夹 / 返回上一级 |
+| Return | 打开 |
+| 空格 | 快速查看 |
+| Delete、⌘⌫ | 移到废纸篓 |
+| ⌘N | 新建文件夹 |
+| ⌘D / ⌘W | 开启双栏 / 关闭当前栏 |
+| ⌘← / ⌘→ | 切换到左栏 / 右栏 |
+| ⌘[ / ⌘] | 分隔条左移 / 右移 |
+| ⌘⌥P | 命令面板 |
+| ⌘F | 搜索 |
+| ⇧⌘G | 编辑路径 |
+| ⌘↑ / ⌘↓ | 上一级 / 原路返回下一级 |
+| ⇧⌘. | 显示 / 隐藏隐藏文件 |
+
+## 系统要求
+
+macOS 27.0 或更高版本。
 
 ## 构建 & 运行
-
-### 方式一：构建并启动（推荐）
 
 ```bash
 ./build_and_run.sh
 ```
 
-增量编译本机架构的 Debug 产物并重启应用，改完代码敲一次即可看到效果。
+增量编译本机架构的 Debug 产物并重启应用（约 1 秒）。需要断点调试时可 `open Package.swift` 用 Xcode 打开。
 
-### 方式二：手动构建
-
-```bash
-swift build --disable-sandbox
-open "$(swift build --disable-sandbox --show-bin-path)/BitXplore"
-```
-
-产物在 `.build/<arch>-apple-macosx/debug/BitXplore`（Apple Silicon 为 `arm64-…`，Intel 为 `x86_64-…`），用 `--show-bin-path` 取路径可免手写架构名。
-
-### 方式三：Xcode（需要断点调试时）
+ZIP 解析与压缩 / 解压逻辑有一份无框架自检：
 
 ```bash
-open Package.swift        # 以 SwiftPM 工程打开，scheme 选 BitXplore 后 ⌘R
+scripts/zip_check/run.sh
 ```
-
-> 必须带 `--disable-sandbox`：应用读写真实文件系统，SPM 沙箱会拦截。Debug 裸二进制没有 `.app` 外壳，Dock 图标与应用名称不完整，功能不受影响。
 
 ## 打包为 dmg
 
@@ -79,7 +90,7 @@ open Package.swift        # 以 SwiftPM 工程打开，scheme 选 BitXplore 后 
 ./package_app.sh
 ```
 
-脚本构建 x86_64 / arm64 / Universal 三个架构，并打包成 dmg 安装镜像（内含 Applications 快捷方式，拖拽即装），**产物统一输出到 `build/`**（已被 `.gitignore` 忽略）：
+构建 x86_64 / arm64 / Universal 三个架构并打包成 dmg，**产物统一输出到 `build/`**（不入库）：
 
 ```
 build/BitXplore_<版本>-amd64.dmg
@@ -87,40 +98,40 @@ build/BitXplore_<版本>-arm64.dmg
 build/BitXplore_<版本>-universal.dmg
 ```
 
-同时在 `build/BitXplore.app` 保留一份 Universal 版本可直接运行。版本号从 `Sources/BitXplore/AppVersion.swift` 读取 —— 该文件是版本号的唯一真源，**发版前需手动递增**（`marketing` + `build`），仓库无 CI、不会自动加号。
+版本号的唯一来源是 `Sources/BitXplore/AppVersion.swift`，**发版前手动递增**。多架构构建需要完整的 Xcode（脚本默认使用 `/Applications/Xcode.app`）。
 
-> 多架构构建需要完整的 Xcode（不止 Command Line Tools）。若报 `xcbuild executable ... does not exist`，先执行 `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`。
-
-升级已安装的旧版本：退出应用 → 双击新 dmg → 把 app 拖入 Applications → 选「替换」。bundle id 固定为 `top.struct.bitxplore`，且应用不保存任何用户数据，覆盖即完成升级。
-
+升级已安装的版本：把新 app 拖入「应用程序」选「替换」即可。应用只在偏好设置中保存三项内容（是否看过引导、自选终端、快速访问列表），覆盖安装不受影响。
 
 ## 项目结构
 
 ```
-BitXplore/
-├── Package.swift                 # Swift Package Manager 配置
-├── build_and_run.sh              # Debug 增量构建 + 重启应用
-├── package_app.sh                # Release 打包 dmg（三架构，输出至 build/）
-├── generate_icon.swift           # 用代码生成 App 图标
-├── build/                        # 打包产物（dmg / .app，不入库）
-├── docs/
-│   └── development-guide.md      # 开发流程：环境、构建、规范、发布、升级
+BitXplorer/
+├── Package.swift                  # SwiftPM 配置（嵌入 Info.plist 使系统菜单显示中文）
+├── build_and_run.sh               # Debug 增量构建 + 重启应用
+├── package_app.sh                 # Release 打包 dmg（三架构，输出至 build/）
+├── generate_icon.swift            # 用代码生成 App 图标
+├── scripts/zip_check/             # ZIP / 压缩解压 / 路径解析自检
+├── docs/development-guide.md      # 开发流程
 └── Sources/BitXplore/
-    ├── AppVersion.swift          # 版本号定义
-    ├── BitXploreApp.swift   # 入口 + 主窗口
+    ├── AppVersion.swift           # 版本号定义
+    ├── BitXploreApp.swift         # 入口、菜单命令、关于窗口
+    ├── Info.plist                 # 嵌入 debug 二进制的语言声明
     ├── Models/
-    │   ├── FileItem.swift        # 文件/文件夹数据模型
-    │   ├── SortOptions.swift     # 排序选项与方向
-    │   └── TreeNode.swift        # 侧边栏树节点（异步）
+    │   ├── FileItem.swift         # 文件数据模型与排序
+    │   ├── Pane.swift             # 单个面板状态（目录、选中、上/下级导航）
+    │   └── TreeNode.swift         # 侧边栏节点与快速访问条目
     ├── Services/
-    │   ├── FileSystemService.swift # 文件操作服务层
-    │   └── NavigationState.swift   # 前进/后退导航栈
+    │   ├── FileSystemService.swift # 文件操作、拖放、压缩解压、终端、路径解析
+    │   └── ZipArchive.swift       # ZIP 中央目录解析、解压、加入
     └── Views/
-        ├── MainContentView.swift  # 主区域整合
-        ├── BreadcrumbBar.swift    # 面包屑地址栏
-        ├── FileListView.swift     # 文件列表 + 右键菜单
-        └── SidebarTreeView.swift  # 侧边栏目录树
+        ├── MainContentView.swift  # 工具栏、双栏布局、面板（加载 / 监视 / 焦点）
+        ├── FileListView.swift     # 文件列表、右键菜单、拖放、Quick Look
+        ├── SidebarTreeView.swift  # 侧边栏：快速访问 + 目录树
+        ├── BreadcrumbBar.swift    # 底部路径栏
+        ├── CommandPalette.swift   # 命令面板
+        └── OnboardingView.swift   # 首次启动授权引导
 ```
+
 ## 许可
 
 MIT
