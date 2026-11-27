@@ -14,7 +14,7 @@ enum ZipArchive {
         let date: Date?
     }
 
-    enum ZipError: Error, Equatable { case malformed, encrypted, unsupportedMethod(Int) }
+    enum ZipError: Error, Equatable { case malformed, encrypted, unsupportedMethod(Int), writeFailed(Int32) }
 
     static func isZip(_ url: URL) -> Bool { url.pathExtension.lowercased() == "zip" }
 
@@ -54,13 +54,70 @@ enum ZipArchive {
         return Array(children.values)
     }
 
-    /// 解出单个条目到临时目录并返回其 URL
+    /// 解出包内文件或整个目录到新的临时目录，返回其 URL
     static func extract(zip: URL, inner: String) throws -> URL {
-        guard let entry = try entries(of: zip).first(where: { $0.name == inner }) else { throw ZipError.malformed }
-        guard entry.flags & 1 == 0 else { throw ZipError.encrypted }
+        let all = try entries(of: zip)
         let handle = try FileHandle(forReadingFrom: zip)
         defer { try? handle.close() }
 
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BitXplore-zip/\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = dir.appendingPathComponent((inner as NSString).lastPathComponent)
+
+        if let entry = all.first(where: { $0.name == inner }) {
+            try contents(of: entry, handle: handle).write(to: dest)
+            return dest
+        }
+
+        // 目录：解出所有以 inner/ 开头的条目
+        let prefix = inner + "/"
+        let children = all.filter { $0.name.hasPrefix(prefix) }
+        guard !children.isEmpty else { throw ZipError.malformed }
+        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        for entry in children {
+            let rel = String(entry.name.dropFirst(prefix.count))
+            // zip slip：条目名不可信，含 .. 的跳过，防止写到目标目录之外
+            guard !rel.isEmpty, !rel.split(separator: "/").contains("..") else { continue }
+            let target = dest.appendingPathComponent(rel)
+            if entry.name.hasSuffix("/") {
+                try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            } else {
+                try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try contents(of: entry, handle: handle).write(to: target)
+            }
+        }
+        return dest
+    }
+
+    /// 把磁盘上的文件/文件夹加入压缩包的 inner 目录（同名条目被替换）。
+    /// 写 zip 交给系统自带的 /usr/bin/zip：先按包内路径在临时目录摆好，再在该目录下执行 zip -r
+    static func add(_ urls: [URL], to zip: URL, inner: String) throws {
+        let stage = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BitXplore-zip-add/\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: stage) }
+        let base = inner.isEmpty ? stage : stage.appendingPathComponent(inner, isDirectory: true)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+
+        var paths: [String] = []
+        for url in urls {
+            try FileManager.default.copyItem(at: url, to: base.appendingPathComponent(url.lastPathComponent))
+            paths.append(inner.isEmpty ? url.lastPathComponent : inner + "/" + url.lastPathComponent)
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.currentDirectoryURL = stage
+        // -y 保留符号链接本身；-- 之后都是文件名（防止以 - 开头的名字被当成选项）
+        process.arguments = ["-r", "-y", "-q", zip.path, "--"] + paths
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw ZipError.writeFailed(process.terminationStatus) }
+    }
+
+    /// 读取并解压单个条目
+    private static func contents(of entry: Entry, handle: FileHandle) throws -> Data {
+        guard entry.flags & 1 == 0 else { throw ZipError.encrypted }
         try handle.seek(toOffset: UInt64(entry.localHeaderOffset))
         let header = try handle.read(upToCount: 30) ?? Data()
         guard try le(header, 0, 4) == 0x04034b50 else { throw ZipError.malformed }
@@ -70,29 +127,24 @@ enum ZipArchive {
         let packed = try handle.read(upToCount: entry.compressedSize) ?? Data()
         guard packed.count == entry.compressedSize else { throw ZipError.malformed }
 
-        let data: Data
         switch entry.method {
         case 0:
-            data = packed
+            return packed
+        case 8 where entry.size == 0:  // 空文件：空缓冲区没有 baseAddress，不能交给解压函数
+            return Data()
         case 8:  // deflate：Compression 的 ZLIB 即原始 DEFLATE
+            guard !packed.isEmpty else { throw ZipError.malformed }
             var out = Data(count: entry.size)
             let written = out.withUnsafeMutableBytes { dst in
                 packed.withUnsafeBytes { src in
                     compression_decode_buffer(dst.baseAddress!, entry.size, src.baseAddress!, packed.count, nil, COMPRESSION_ZLIB)
                 }
             }
-            guard written == entry.size || entry.size == 0 else { throw ZipError.malformed }
-            data = out
+            guard written == entry.size else { throw ZipError.malformed }
+            return out
         default:
             throw ZipError.unsupportedMethod(entry.method)
         }
-
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("BitXplore-zip/\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dest = dir.appendingPathComponent((inner as NSString).lastPathComponent)
-        try data.write(to: dest)
-        return dest
     }
 
     // MARK: - 中央目录解析（输入不可信：所有读取都做越界检查）

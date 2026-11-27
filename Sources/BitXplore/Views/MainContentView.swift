@@ -6,6 +6,10 @@ struct MainContentView: View {
     @Binding var panes: [Pane]
     @Binding var activePane: Int
     let isDualPane: Bool
+    /// 双栏时左栏占比（⌘[ / ⌘] 或拖动分隔条调整）
+    @Binding var splitFraction: CGFloat
+    /// ⌘F 递增，聚焦工具栏搜索框
+    let searchFocusTrigger: Int
     @Binding var clipboardURLs: [URL]
     @Binding var clipboardIsCut: Bool
     @Binding var showHiddenFiles: Bool
@@ -14,8 +18,10 @@ struct MainContentView: View {
     let refreshTick: Int
     let onNewFolder: () -> Void
 
-    /// 两栏文件列表的键盘焦点；与 activePane 双向同步
-    @FocusState private var focusedPane: Int?
+    /// 递增即请求把键盘焦点交给 activePane 的列表（初值 1：启动时聚焦左栏）。
+    /// SwiftUI 的 FocusState 无法可靠地把 AppKit 第一响应者移到 Table 上，由 PaneProbe 直接 makeFirstResponder
+    @State private var focusRequest = 1
+    @FocusState private var searchFocused: Bool
 
     private var active: Binding<Pane> { $panes[activePane] }
 
@@ -35,11 +41,28 @@ struct MainContentView: View {
     }
 
     var body: some View {
-        HSplitView {
-            paneView(0)
-            if isDualPane {
-                paneView(1)
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                paneView(0)
+                    .frame(width: isDualPane ? geo.size.width * splitFraction : nil)
+                if isDualPane {
+                    Divider()
+                        .overlay {
+                            // 加宽的不可见拖拽区；双击恢复等分
+                            Color.clear
+                                .frame(width: 8)
+                                .contentShape(Rectangle())
+                                .pointerStyle(.columnResize)
+                                .gesture(DragGesture(coordinateSpace: .named("split")).onChanged { value in
+                                    splitFraction = Self.clampSplit(value.location.x / geo.size.width)
+                                })
+                                .onTapGesture(count: 2) { withAnimation(.snappy) { splitFraction = 0.5 } }
+                        }
+                        .zIndex(1)  // 拖拽区盖在右栏之上，两侧各 4pt 都可抓
+                    paneView(1)
+                }
             }
+            .coordinateSpace(name: "split")
         }
         .navigationTitle(currentFolderName)
         .navigationDocument(active.wrappedValue.currentURL)
@@ -90,17 +113,14 @@ struct MainContentView: View {
             }
         }
         .searchable(text: active.searchText, placement: .toolbar, prompt: "搜索")
-        .defaultFocus($focusedPane, 0)
-        // 开/关双栏后把键盘焦点交给活动栏，⌘←/→ 立即可用
-        .onChange(of: isDualPane) { focusedPane = activePane }
-        .onChange(of: focusedPane) {
-            if let focusedPane, isDualPane { activePane = focusedPane }
-        }
-        // 仅当焦点已在某栏列表时才跟随（⌘←/→、⌘W），避免抢走搜索框/路径编辑框的焦点
-        .onChange(of: activePane) {
-            if focusedPane != nil { focusedPane = activePane }
-        }
+        .searchFocused($searchFocused)
+        .onChange(of: searchFocusTrigger) { searchFocused = true }
+        // 开/关双栏（⌘D/⌘W）后把键盘焦点交给活动栏
+        .onChange(of: isDualPane) { focusRequest += 1 }
     }
+
+    /// 分栏占比范围，保证两栏都留有可用宽度
+    static func clampSplit(_ fraction: CGFloat) -> CGFloat { min(max(fraction, 0.2), 0.8) }
 
     private func paneView(_ index: Int) -> some View {
         PaneView(
@@ -110,18 +130,23 @@ struct MainContentView: View {
             onSwitch: { target in
                 guard isDualPane else { return false }
                 activePane = target
-                focusedPane = target
+                focusRequest += 1
                 return true
             },
-            focusedPane: $focusedPane,
-            index: index,
+            onOpenInOtherPane: isDualPane ? { url in
+                panes[1 - index].navigate(to: url)
+                activePane = 1 - index
+                focusRequest += 1
+            } : nil,
+            focusRequest: focusRequest,
+            wantsFocus: activePane == index,
             clipboardURLs: $clipboardURLs,
             clipboardIsCut: $clipboardIsCut,
             showHiddenFiles: $showHiddenFiles,
             fsService: fsService,
             refreshTick: refreshTick
         )
-        .frame(minWidth: 300, maxWidth: .infinity)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -133,8 +158,9 @@ struct PaneView: View {
     let onActivate: () -> Void
     /// ⌘←/⌘→ 切换到目标栏，单栏时返回 false 不拦截按键
     let onSwitch: (Int) -> Bool
-    var focusedPane: FocusState<Int?>.Binding
-    let index: Int
+    let onOpenInOtherPane: ((URL) -> Void)?
+    let focusRequest: Int
+    let wantsFocus: Bool
     @Binding var clipboardURLs: [URL]
     @Binding var clipboardIsCut: Bool
     @Binding var showHiddenFiles: Bool
@@ -178,9 +204,9 @@ struct PaneView: View {
                     fsService: fsService,
                     onRefresh: { loadFiles(clearSelection: false) },
                     newFolderTrigger: pane.newFolderTrigger,
-                    renameTrigger: pane.renameTrigger
+                    renameTrigger: pane.renameTrigger,
+                    onOpenInOtherPane: onOpenInOtherPane
                 )
-                .focused(focusedPane, equals: index)
                 .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
                     guard press.modifiers.intersection([.command, .shift, .option, .control]) == .command
                     else { return .ignored }
@@ -206,7 +232,7 @@ struct PaneView: View {
             }
         }
         // 鼠标在本栏任意位置按下（列表/空白/路径栏/状态栏）即激活本栏
-        .overlay { MouseDownProbe(onMouseDown: onActivate) }
+        .overlay { PaneProbe(onMouseDown: onActivate, focusRequest: focusRequest, wantsFocus: wantsFocus) }
         // 返回上一级时选中刚离开的文件夹，方便继续用方向键浏览
         .onChange(of: pane.currentURL) { old, new in
             let cameFrom = old.deletingLastPathComponent().standardizedFileURL == new.standardizedFileURL ? old : nil
@@ -327,20 +353,60 @@ struct PaneView: View {
     }
 }
 
-/// 透明探针：本地监听鼠标按下，落在自身范围内即回调；hitTest 返回 nil，不拦截任何点击
-private struct MouseDownProbe: NSViewRepresentable {
+/// 覆盖整个面板的透明探针（hitTest 返回 nil，不拦截任何点击）：
+/// 1. 本地监听鼠标按下，落在本栏范围内即回调激活；
+/// 2. 收到新的 focusRequest 且本栏是目标时，找到本栏范围内的 NSTableView 并设为第一响应者
+private struct PaneProbe: NSViewRepresentable {
     let onMouseDown: () -> Void
+    let focusRequest: Int
+    let wantsFocus: Bool
 
     func makeNSView(context: Context) -> ProbeView { ProbeView() }
-    func updateNSView(_ view: ProbeView, context: Context) { view.onMouseDown = onMouseDown }
+    func updateNSView(_ view: ProbeView, context: Context) {
+        view.onMouseDown = onMouseDown
+        view.update(focusRequest: focusRequest, wantsFocus: wantsFocus)
+    }
 
     final class ProbeView: NSView {
         var onMouseDown: (() -> Void)?
         private var monitor: Any?
+        private var focusRequest = 0
+        private var handledRequest = 0
+        private var wantsFocus = false
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+        func update(focusRequest: Int, wantsFocus: Bool) {
+            self.focusRequest = focusRequest
+            self.wantsFocus = wantsFocus
+            if !wantsFocus { handledRequest = focusRequest }  // 请求不是给本栏的，作废
+            focusIfNeeded()
+        }
+
+        private func focusIfNeeded() {
+            guard wantsFocus, focusRequest != handledRequest, window != nil else { return }
+            handledRequest = focusRequest
+            // 等 SwiftUI 本轮布局完成（新开的右栏此刻还没放进窗口）
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window else { return }
+                let paneRect = self.convert(self.bounds, to: nil)
+                let table = Self.tables(in: window.contentView).first { table in
+                    let box = table.enclosingScrollView ?? table
+                    let frame = box.convert(box.bounds, to: nil)
+                    return paneRect.contains(NSPoint(x: frame.midX, y: frame.midY))
+                }
+                if let table { window.makeFirstResponder(table) }
+            }
+        }
+
+        private static func tables(in view: NSView?) -> [NSTableView] {
+            guard let view else { return [] }
+            if let table = view as? NSTableView { return [table] }
+            return view.subviews.flatMap { tables(in: $0) }
+        }
+
         override func viewDidMoveToWindow() {
+            focusIfNeeded()
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
             guard window != nil else { return }

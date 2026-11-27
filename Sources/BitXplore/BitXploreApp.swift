@@ -61,6 +61,8 @@ struct BitXploreApp: App {
     @State private var panes = [Pane(), Pane()]
     @State private var activePane = 0
     @State private var isDualPane = false
+    @State private var splitFraction: CGFloat = 0.5
+    @State private var searchFocusTrigger = 0
     @State private var clipboardURLs: [URL] = []
     @State private var clipboardIsCut = false
     @State private var showHiddenFiles = false
@@ -137,6 +139,8 @@ struct BitXploreApp: App {
                     panes: $panes,
                     activePane: $activePane,
                     isDualPane: isDualPane,
+                    splitFraction: $splitFraction,
+                    searchFocusTrigger: searchFocusTrigger,
                     clipboardURLs: $clipboardURLs,
                     clipboardIsCut: $clipboardIsCut,
                     showHiddenFiles: $showHiddenFiles,
@@ -200,6 +204,23 @@ struct BitXploreApp: App {
                     toggleDualPane()
                 }
                 .keyboardShortcut("d", modifiers: .command)
+
+                Button("分隔条左移") {
+                    withAnimation(.snappy) { splitFraction = MainContentView.clampSplit(splitFraction - 0.1) }
+                }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!isDualPane)
+
+                Button("分隔条右移") {
+                    withAnimation(.snappy) { splitFraction = MainContentView.clampSplit(splitFraction + 0.1) }
+                }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(!isDualPane)
+
+                Divider()
+
+                Button("搜索") { searchFocusTrigger += 1 }
+                    .keyboardShortcut("f", modifiers: .command)
             }
 
             CommandMenu("前往") {
@@ -225,7 +246,8 @@ struct BitXploreApp: App {
 
             CommandGroup(after: .pasteboard) {
                 Button("复制") {
-                    clipboardURLs = Array(active.selectedURLs)
+                    // zip 包内条目先解出，粘贴时才有真实文件可拷
+                    clipboardURLs = active.selectedURLs.compactMap { try? fsService.materialize($0) }
                     clipboardIsCut = false
                 }
                 .keyboardShortcut("c", modifiers: .command)
@@ -237,7 +259,7 @@ struct BitXploreApp: App {
                     active.selectedURLs = []
                 }
                 .keyboardShortcut("x", modifiers: .command)
-                .disabled(active.selectedURLs.isEmpty)
+                .disabled(active.selectedURLs.isEmpty || ZipArchive.split(active.currentURL) != nil)
 
                 Button("粘贴") {
                     paste()
@@ -257,7 +279,7 @@ struct BitXploreApp: App {
                     refreshTick += 1
                 }
                 .keyboardShortcut(.delete, modifiers: .command)
-                .disabled(active.selectedURLs.isEmpty)
+                .disabled(active.selectedURLs.isEmpty || ZipArchive.split(active.currentURL) != nil)
             }
         }
 

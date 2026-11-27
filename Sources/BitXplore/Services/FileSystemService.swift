@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import UniformTypeIdentifiers
 
 /// 文件系统服务 - 无状态，负责目录读取与文件操作
 final class FileSystemService: Sendable {
@@ -73,11 +74,6 @@ final class FileSystemService: Sendable {
         return failures
     }
 
-    /// 在 Finder 中显示
-    func revealInFinder(_ url: URL) {
-        NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "")
-    }
-
     /// 在 Finder 中打开文件夹
     func openInFinder(_ url: URL) {
         NSWorkspace.shared.open(url)
@@ -105,11 +101,123 @@ final class FileSystemService: Sendable {
         }
     }
 
-    /// 复制路径到剪贴板
-    func copyPath(_ url: URL) {
+    /// 复制文本到剪贴板（多个路径/名称按行拼接）
+    func copyToPasteboard(_ string: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(url.path, forType: .string)
+        pasteboard.setString(string, forType: .string)
+    }
+
+    // MARK: - 打开方式 / 终端
+
+    /// 能打开该文件的 App，默认 App 排第一；zip 包内条目不在磁盘上，按扩展名类型查询
+    func applications(toOpen url: URL) -> [URL] {
+        let ws = NSWorkspace.shared
+        let onDisk = FileManager.default.fileExists(atPath: url.path)
+        let type = UTType(filenameExtension: url.pathExtension) ?? .data
+        let all = onDisk ? ws.urlsForApplications(toOpen: url) : ws.urlsForApplications(toOpen: type)
+        let preferred = onDisk ? ws.urlForApplication(toOpen: url) : ws.urlForApplication(toOpen: type)
+        guard let preferred else { return all }
+        return [preferred] + all.filter { $0 != preferred }
+    }
+
+    @MainActor
+    func open(_ urls: [URL], with app: URL) {
+        let files = urls.compactMap { try? materialize($0) }
+        NSWorkspace.shared.open(files, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// 常见终端。多数终端支持「用它打开文件夹」即在该目录开新窗口；
+    /// 少数不支持的，以新实例启动并用命令行参数指定工作目录
+    private static let terminals: [(bundleID: String, arguments: (@Sendable (String) -> [String])?)] = [
+        ("com.apple.Terminal", nil),
+        ("com.googlecode.iterm2", nil),
+        ("com.mitchellh.ghostty", nil),
+        ("dev.warp.Warp-Stable", nil),
+        ("net.kovidgoyal.kitty", { ["--directory", $0] }),
+        ("org.alacritty", { ["--working-directory", $0] }),
+        ("com.github.wez.wezterm", { ["start", "--cwd", $0] }),
+    ]
+
+    /// 本机已安装的终端 App
+    func installedTerminals() -> [URL] {
+        Self.terminals.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleID) }
+    }
+
+    @MainActor
+    func openInTerminal(_ directory: URL, app: URL) {
+        let id = Bundle(url: app)?.bundleIdentifier
+        let config = NSWorkspace.OpenConfiguration()
+        if let arguments = Self.terminals.first(where: { $0.bundleID == id })?.arguments {
+            config.arguments = arguments(directory.path)
+            config.createsNewApplicationInstance = true
+            NSWorkspace.shared.openApplication(at: app, configuration: config)
+        } else {
+            NSWorkspace.shared.open([directory], withApplicationAt: app, configuration: config)
+        }
+    }
+
+    // MARK: - 副本 / 压缩 / 解压
+
+    /// 创建副本（「xxx 副本」「xxx 副本 2」…），返回新 URL
+    @discardableResult
+    func duplicate(_ urls: [URL]) -> [URL] {
+        urls.compactMap { url in
+            let dest = nextAvailableName(for: url, in: url.deletingLastPathComponent())
+            return (try? FileManager.default.copyItem(at: url, to: dest)) != nil ? dest : nil
+        }
+    }
+
+    /// 压缩为 zip（单项「名称.zip」，多项「归档.zip」），放在同一目录；返回生成的文件
+    /// ponytail: 主线程同步执行，大目录会卡顿；需要时挪到后台并显示进度
+    @discardableResult
+    func compress(_ urls: [URL]) -> URL? {
+        guard let dir = urls.first?.deletingLastPathComponent() else { return nil }
+        let name = urls.count == 1 ? urls[0].lastPathComponent + ".zip" : "归档.zip"
+        let dest = uniqueURL(name, in: dir)
+        // -y 保留符号链接；-- 之后都是文件名
+        return run("/usr/bin/zip", ["-r", "-y", "-q", dest.path, "--"] + urls.map(\.lastPathComponent), in: dir) ? dest : nil
+    }
+
+    /// 解压到同目录（同「归档实用工具」）：包内只有一个顶层项目时直接放出该项目，
+    /// 否则放进以压缩包命名的新文件夹；返回放出的项目
+    @discardableResult
+    func extractZip(_ zip: URL) -> URL? {
+        let dir = zip.deletingLastPathComponent()
+        let temp = dir.appendingPathComponent(".BitXplore-unzip-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temp) }
+        guard run("/usr/bin/ditto", ["-x", "-k", zip.path, temp.path]) else { return nil }
+
+        let items = ((try? FileManager.default.contentsOfDirectory(at: temp, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent != "__MACOSX" }
+        let (source, name) = items.count == 1
+            ? (items[0], items[0].lastPathComponent)
+            : (temp, zip.deletingPathExtension().lastPathComponent)
+        let dest = uniqueURL(name, in: dir)
+        return (try? FileManager.default.moveItem(at: source, to: dest)) != nil ? dest : nil
+    }
+
+    /// Finder 式不重名：「名称」「名称 2」「名称 3」…
+    private func uniqueURL(_ name: String, in dir: URL) -> URL {
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        var candidate = dir.appendingPathComponent(name)
+        var n = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = dir.appendingPathComponent(ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)")
+            n += 1
+        }
+        return candidate
+    }
+
+    private func run(_ tool: String, _ arguments: [String], in dir: URL? = nil) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        process.currentDirectoryURL = dir
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 
     /// 新建文件夹
@@ -205,6 +313,49 @@ final class FileSystemService: Sendable {
             }
         }
         return isCut && executedAny
+    }
+
+    /// 拖放落下。目标在 zip 内（或就是 zip 文件）则加入压缩包；
+    /// 否则沿用 Finder 语义：同一卷移动，跨卷或按住 ⌥ 复制
+    @MainActor
+    func dropItems(_ urls: [URL], to destination: URL) {
+        let urls = urls.filter { $0.standardizedFileURL != destination.standardizedFileURL }
+        guard !urls.isEmpty else { return }
+        if let (zip, inner) = ZipArchive.split(destination) {
+            addToZip(urls, zip: zip, inner: inner)
+            return
+        }
+        func volume(_ url: URL) -> AnyHashable? {
+            (try? url.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? AnyHashable
+        }
+        // ponytail: 混合来源时只要有一个跨卷就全部复制；需要时按条目分别决定
+        let destVolume = volume(destination)
+        let copy = NSEvent.modifierFlags.contains(.option) || urls.contains { volume($0) != destVolume }
+        pasteItems(urls, to: destination, isCut: !copy)
+    }
+
+    /// 加入压缩包：同名条目先确认替换
+    @MainActor
+    private func addToZip(_ urls: [URL], zip: URL, inner: String) {
+        let existing = Set(((try? ZipArchive.list(zip: zip, inner: inner, showHidden: true)) ?? []).map(\.name))
+        let conflicts = urls.map(\.lastPathComponent).filter(existing.contains)
+        if !conflicts.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "「\(zip.lastPathComponent)」中已存在同名项目"
+            alert.informativeText = "「\(conflicts.prefix(3).joined(separator: "、"))」\(conflicts.count > 3 ? " 等 \(conflicts.count) 项" : "")将被替换。"
+            alert.addButton(withTitle: "替换")
+            alert.addButton(withTitle: "取消")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        // ponytail: 主线程同步执行 zip，大文件加入时会短暂卡顿；需要时挪到后台并显示进度
+        do {
+            try ZipArchive.add(urls, to: zip, inner: inner)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "无法加入「\(zip.lastPathComponent)」"
+            alert.informativeText = "\(error.localizedDescription)"
+            alert.runModal()
+        }
     }
 
     /// 生成不冲突的副本名（"xxx 副本"、"xxx 副本 2"...）
