@@ -1,12 +1,8 @@
 import Cocoa
 import Foundation
 
-/// 用代码生成 App 图标 — 遵循 macOS（Big Sur+）图标规范：
-/// - 1024 画布，作品区域约 824/1024 居中，四周透明边距（小尺寸按比例放大占比）
-/// - 正面平视绘制（无透视），squircle 圆角 + 柔和投影 + 顶面高光
-/// - 主体：正面文件夹 + 双向交换箭头（BitXplore 的双栏文件交换主题）
+/// 用代码生成 BitXplore 应用图标 — 极简原生 macOS 蓝色文件夹（Apple Files 风格）
 
-/// 各尺寸的作品区域占画布比例：大尺寸 0.824，越小越接近满幅
 func artworkFraction(for size: CGFloat) -> CGFloat {
     switch size {
     case ..<24: return 1.0
@@ -16,142 +12,143 @@ func artworkFraction(for size: CGFloat) -> CGFloat {
     }
 }
 
-func drawArrow(ctx: CGContext, from: CGPoint, to: CGPoint, lineWidth: CGFloat, color: CGColor) {
-    let dx = to.x - from.x, dy = to.y - from.y
-    let len = sqrt(dx * dx + dy * dy)
-    let ux = dx / len, uy = dy / len
-    let headLength = lineWidth * 1.8
-    let shaftEnd = CGPoint(x: to.x - ux * headLength, y: to.y - uy * headLength)
+func srgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1.0) -> CGColor {
+    CGColor(srgbRed: r / 255.0, green: g / 255.0, blue: b / 255.0, alpha: a)
+}
 
-    // 箭杆
-    ctx.setStrokeColor(color)
-    ctx.setLineWidth(lineWidth)
-    ctx.setLineCap(.round)
-    ctx.move(to: from)
-    ctx.addLine(to: shaftEnd)
+func makeGradient(_ colors: [CGColor], locations: [CGFloat]) -> CGGradient {
+    CGGradient(
+        colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+        colors: colors as CFArray,
+        locations: locations
+    )!
+}
+
+func squirclePath(in rect: CGRect, exponent: CGFloat = 5.0, samples: Int = 180) -> CGPath {
+    let path = CGMutablePath()
+    let cx = rect.midX, cy = rect.midY
+    let rx = rect.width / 2, ry = rect.height / 2
+    let p = 2.0 / exponent
+    for i in 0..<samples {
+        let theta = 2.0 * CGFloat.pi * CGFloat(i) / CGFloat(samples)
+        let cosT = cos(theta), sinT = sin(theta)
+        let px = cx + rx * (cosT >= 0 ? 1 : -1) * pow(abs(cosT), p)
+        let py = cy + ry * (sinT >= 0 ? 1 : -1) * pow(abs(sinT), p)
+        if i == 0 { path.move(to: CGPoint(x: px, y: py)) }
+        else { path.addLine(to: CGPoint(x: px, y: py)) }
+    }
+    path.closeSubpath()
+    return path
+}
+
+func folderBackPath(x0: CGFloat, y0: CGFloat, A: CGFloat) -> CGPath {
+    let left = x0 + 0.145 * A, right = x0 + 0.855 * A
+    let bottom = y0 + 0.22 * A, shoulderY = y0 + 0.715 * A, tabTop = y0 + 0.79 * A
+    let r = 0.052 * A
+    let path = CGMutablePath()
+    path.move(to: CGPoint(x: left + r, y: bottom))
+    path.addLine(to: CGPoint(x: right - r, y: bottom))
+    path.addQuadCurve(to: CGPoint(x: right, y: bottom + r), control: CGPoint(x: right, y: bottom))
+    path.addLine(to: CGPoint(x: right, y: shoulderY - r))
+    path.addQuadCurve(to: CGPoint(x: right - r, y: shoulderY), control: CGPoint(x: right, y: shoulderY))
+    path.addLine(to: CGPoint(x: x0 + 0.46 * A, y: shoulderY))
+    path.addCurve(to: CGPoint(x: x0 + 0.39 * A, y: tabTop),
+                  control1: CGPoint(x: x0 + 0.425 * A, y: shoulderY),
+                  control2: CGPoint(x: x0 + 0.42 * A, y: tabTop))
+    path.addLine(to: CGPoint(x: left + r, y: tabTop))
+    path.addQuadCurve(to: CGPoint(x: left, y: tabTop - r), control: CGPoint(x: left, y: tabTop))
+    path.addLine(to: CGPoint(x: left, y: bottom + r))
+    path.addQuadCurve(to: CGPoint(x: left + r, y: bottom), control: CGPoint(x: left, y: bottom))
+    path.closeSubpath()
+    return path
+}
+
+func generateAppIcon(size: CGFloat) -> NSBitmapImageRep {
+    let pixelSize = Int(size)
+    let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: pixelSize, pixelsHigh: pixelSize,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+    )!
+    rep.size = NSSize(width: size, height: size)
+
+    guard let nsCtx = NSGraphicsContext(bitmapImageRep: rep) else { fatalError("无法创建位图图形上下文") }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = nsCtx
+    let ctx = nsCtx.cgContext
+    ctx.clear(CGRect(x: 0, y: 0, width: size, height: size))
+
+    let A = size * artworkFraction(for: size)
+    let offset = (size - A) / 2
+    let x0 = offset, y0 = offset
+    let squircle = squirclePath(in: CGRect(x: x0, y: y0, width: A, height: A))
+
+    // 1. 外投影 + 纯白微渐变圆角底板
+    if size >= 64 {
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -size * 0.018), blur: size * 0.04, color: CGColor(gray: 0, alpha: 0.24))
+        ctx.addPath(squircle)
+        ctx.setFillColor(srgb(255, 255, 255))
+        ctx.fillPath()
+        ctx.restoreGState()
+    }
+
+    ctx.saveGState()
+    ctx.addPath(squircle)
+    ctx.clip()
+
+    let tileGrad = makeGradient([srgb(239, 243, 248), srgb(255, 255, 255)], locations: [0.0, 1.0])
+    ctx.drawLinearGradient(tileGrad, start: CGPoint(x: x0, y: y0), end: CGPoint(x: x0, y: y0 + A), options: [])
+
+    // 2. 蓝色文件夹主体（背板 + 前板，无多余装饰）
+    let backPath = folderBackPath(x0: x0, y0: y0, A: A)
+    if size >= 48 {
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -0.016 * A), blur: 0.032 * A, color: srgb(12, 92, 168, 0.22))
+        ctx.addPath(backPath)
+        ctx.setFillColor(srgb(87, 193, 250))
+        ctx.fillPath()
+        ctx.restoreGState()
+    }
+
+    ctx.saveGState()
+    ctx.addPath(backPath)
+    ctx.clip()
+    let backGrad = makeGradient([srgb(87, 193, 250), srgb(137, 218, 255)], locations: [0.0, 1.0])
+    ctx.drawLinearGradient(backGrad, start: CGPoint(x: x0, y: y0 + 0.22 * A), end: CGPoint(x: x0, y: y0 + 0.79 * A), options: [])
+    ctx.restoreGState()
+
+    let frontRect = CGRect(x: x0 + 0.145 * A, y: y0 + 0.22 * A, width: 0.71 * A, height: 0.45 * A)
+    let frontPath = CGPath(roundedRect: frontRect, cornerWidth: 0.055 * A, cornerHeight: 0.055 * A, transform: nil)
+
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: 0.006 * A), blur: 0.018 * A, color: srgb(14, 98, 178, 0.18))
+    ctx.addPath(frontPath)
+    ctx.setFillColor(srgb(74, 187, 249))
+    ctx.fillPath()
+    ctx.restoreGState()
+
+    ctx.saveGState()
+    ctx.addPath(frontPath)
+    ctx.clip()
+    let frontGrad = makeGradient([srgb(39, 157, 242), srgb(74, 187, 249), srgb(110, 208, 255)], locations: [0.0, 0.55, 1.0])
+    ctx.drawLinearGradient(frontGrad, start: CGPoint(x: x0, y: frontRect.minY), end: CGPoint(x: x0, y: frontRect.maxY), options: [])
+
+    let topSheen = makeGradient([CGColor(gray: 1, alpha: 0.0), CGColor(gray: 1, alpha: 0.35)], locations: [0.0, 1.0])
+    ctx.drawLinearGradient(topSheen, start: CGPoint(x: x0, y: frontRect.maxY - frontRect.height * 0.06), end: CGPoint(x: x0, y: frontRect.maxY), options: [])
+    ctx.restoreGState()
+
+    // 3. Squircle 极细内描边，保持浅色背景下的边界清晰度
+    ctx.addPath(squircle)
+    ctx.setStrokeColor(srgb(15, 23, 42, 0.08))
+    ctx.setLineWidth(max(1.0, 0.008 * A) * 2)
     ctx.strokePath()
 
-    // 箭头
-    let headHalf = lineWidth * 1.5
-    let perp = CGPoint(x: -uy, y: ux)
-    ctx.setFillColor(color)
-    ctx.move(to: to)
-    ctx.addLine(to: CGPoint(x: shaftEnd.x + perp.x * headHalf, y: shaftEnd.y + perp.y * headHalf))
-    ctx.addLine(to: CGPoint(x: shaftEnd.x - perp.x * headHalf, y: shaftEnd.y - perp.y * headHalf))
-    ctx.closePath()
-    ctx.fillPath()
+    ctx.restoreGState()
+    NSGraphicsContext.restoreGraphicsState()
+    return rep
 }
 
-func generateAppIcon(size: CGFloat) -> NSImage {
-    let image = NSImage(size: NSSize(width: size, height: size))
-    image.lockFocus()
-    let ctx = NSGraphicsContext.current!.cgContext
-
-    let fraction = artworkFraction(for: size)
-    let artwork = size * fraction
-    let offset = (size - artwork) / 2
-    let cornerRadius = artwork * 0.225
-    let squircle = CGRect(x: offset, y: offset, width: artwork, height: artwork)
-
-    // 投影（小尺寸省略，避免糊成一团）
-    ctx.saveGState()
-    if size >= 96 {
-        ctx.setShadow(offset: NSSize(width: 0, height: -size * 0.018),
-                      blur: size * 0.045,
-                      color: CGColor(gray: 0, alpha: 0.35))
-    }
-    ctx.addPath(CGPath(roundedRect: squircle, cornerWidth: cornerRadius,
-                       cornerHeight: cornerRadius, transform: nil))
-    ctx.setFillColor(CGColor(red: 0.10, green: 0.38, blue: 0.90, alpha: 1))
-    ctx.fillPath()
-    ctx.restoreGState()
-
-    // 背景渐变 + 顶面高光（裁剪到 squircle 内）
-    ctx.saveGState()
-    ctx.addPath(CGPath(roundedRect: squircle, cornerWidth: cornerRadius,
-                       cornerHeight: cornerRadius, transform: nil))
-    ctx.clip()
-
-    let bg = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [
-        CGColor(srgbRed: 16/255.0, green: 110/255.0, blue: 105/255.0, alpha: 1),
-        CGColor(srgbRed: 122/255.0, green: 219/255.0, blue: 212/255.0, alpha: 1),
-    ] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(bg, start: CGPoint(x: 0, y: offset),
-                           end: CGPoint(x: 0, y: offset + artwork), options: [])
-
-    let glass = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [
-        CGColor(gray: 1, alpha: 0.28),
-        CGColor(gray: 1, alpha: 0),
-    ] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(glass,
-                           start: CGPoint(x: 0, y: offset + artwork),
-                           end: CGPoint(x: 0, y: offset + artwork * 0.45),
-                           options: [])
-
-    // 文件夹主体（坐标均为 squircle 内的归一化比例，y 向上）
-    let A = artwork
-    let x0 = offset, y0 = offset
-    func rect(_ nx: CGFloat, _ ny: CGFloat, _ nw: CGFloat, _ nh: CGFloat, _ nr: CGFloat) -> CGPath {
-        CGPath(roundedRect: CGRect(x: x0 + nx * A, y: y0 + ny * A,
-                                   width: nw * A, height: nh * A),
-               cornerWidth: nr * A, cornerHeight: nr * A, transform: nil)
-    }
-
-    // 背板 + 标签页（较深蓝，上缘露出）
-    let backGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [
-        CGColor(gray: 1, alpha: 0.10),
-        CGColor(gray: 1, alpha: 0.35),
-    ] as CFArray, locations: [0, 1])!
-    let backTop = CGRect(x: x0 + 0.10 * A, y: y0 + 0.30 * A,
-                         width: 0.80 * A, height: 0.44 * A)
-    let tab = CGRect(x: x0 + 0.10 * A, y: y0 + 0.30 * A,
-                     width: 0.34 * A, height: 0.50 * A)
-    ctx.addPath(CGPath(roundedRect: backTop, cornerWidth: 0.045 * A,
-                       cornerHeight: 0.045 * A, transform: nil))
-    ctx.clip()
-    ctx.drawLinearGradient(backGrad, start: CGPoint(x: 0, y: y0 + 0.30 * A),
-                           end: CGPoint(x: 0, y: y0 + 0.80 * A), options: [])
-    ctx.restoreGState()
-    ctx.saveGState()
-    ctx.addPath(CGPath(roundedRect: tab, cornerWidth: 0.045 * A,
-                       cornerHeight: 0.045 * A, transform: nil))
-    ctx.clip()
-    ctx.drawLinearGradient(backGrad, start: CGPoint(x: 0, y: y0 + 0.30 * A),
-                           end: CGPoint(x: 0, y: y0 + 0.80 * A), options: [])
-    ctx.restoreGState()
-
-    // 前板（白色系，占文件夹下半部）
-    ctx.saveGState()
-    let front = CGRect(x: x0 + 0.10 * A, y: y0 + 0.24 * A,
-                       width: 0.80 * A, height: 0.44 * A)
-    ctx.addPath(CGPath(roundedRect: front, cornerWidth: 0.045 * A,
-                       cornerHeight: 0.045 * A, transform: nil))
-    ctx.clip()
-    let frontGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [
-        CGColor(srgbRed: 0.88, green: 0.98, blue: 0.97, alpha: 1),
-        CGColor(gray: 1, alpha: 1),
-    ] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(frontGrad, start: CGPoint(x: 0, y: y0 + 0.24 * A),
-                           end: CGPoint(x: 0, y: y0 + 0.68 * A), options: [])
-
-    // 双向交换箭头：上排向右、下排向左（双栏文件交换）
-    let arrowColor = CGColor(srgbRed: 57/255.0, green: 197/255.0, blue: 187/255.0, alpha: 1)
-    let lw = 0.05 * A
-    drawArrow(ctx: ctx,
-              from: CGPoint(x: x0 + 0.28 * A, y: y0 + 0.545 * A),
-              to: CGPoint(x: x0 + 0.74 * A, y: y0 + 0.545 * A),
-              lineWidth: lw, color: arrowColor)
-    drawArrow(ctx: ctx,
-              from: CGPoint(x: x0 + 0.72 * A, y: y0 + 0.375 * A),
-              to: CGPoint(x: x0 + 0.26 * A, y: y0 + 0.375 * A),
-              lineWidth: lw, color: arrowColor)
-    ctx.restoreGState()
-
-    image.unlockFocus()
-    return image
-}
-
-// 生成各种尺寸
 let sizes: [(CGFloat, String)] = [
     (16, "icon_16x16"), (32, "icon_16x16@2x"),
     (32, "icon_32x32"), (64, "icon_32x32@2x"),
@@ -160,17 +157,18 @@ let sizes: [(CGFloat, String)] = [
     (512, "icon_512x512"), (1024, "icon_512x512@2x"),
 ]
 
-let outputDir = URL(fileURLWithPath: CommandLine.arguments[1])
-try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-
-for (size, name) in sizes {
-    let icon = generateAppIcon(size: size)
-    let data = icon.tiffRepresentation!
-    let rep = NSBitmapImageRep(data: data)!
-    let pngData = rep.representation(using: .png, properties: [:])!
-    let fileURL = outputDir.appendingPathComponent("\(name).png")
-    try! pngData.write(to: fileURL)
-    print("Generated \(name).png (\(Int(size))x\(Int(size)))")
+guard CommandLine.arguments.count >= 2 else {
+    fputs("Usage: swift generate_icon.swift <output_dir>\n", stderr)
+    exit(1)
 }
 
+let outputDir = URL(fileURLWithPath: CommandLine.arguments[1])
+try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+for (size, name) in sizes {
+    let rep = generateAppIcon(size: size)
+    let pngData = rep.representation(using: .png, properties: [:])!
+    try pngData.write(to: outputDir.appendingPathComponent("\(name).png"))
+    print("Generated \(name).png (\(rep.pixelsWide)x\(rep.pixelsHigh))")
+}
 print("Done! All icons generated.")
