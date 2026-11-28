@@ -139,47 +139,14 @@ struct FileListView: View {
             openItems(urls)
         }
         // ↑↓ 由 Table 原生切换选中；→ 进入选中的文件夹，← 返回上一级；Delete / ⌦ 移到废纸篓
-        .onKeyPress(keys: [.return, .delete, .deleteForward, .leftArrow, .rightArrow, .space, .escape, KeyEquivalent("\u{F705}")]) { press in
-            // 方向键自带 numericPad/function 标志，只看真正的修饰键；带 ⌘ 的交给外层（⌘←/→ 切栏）
-            guard !isRenaming,
-                  press.modifiers.intersection([.command, .shift, .option, .control]).isEmpty
-            else { return .ignored }
-            switch press.key {
-            case .return:
-                guard !selectedURLs.isEmpty else { return .ignored }
-                openItems(selectedURLs)
-                return .handled
-            case .space:
-                QuickLook.shared.toggle(previewURLs(selectedURLs))
-                return .handled
-            case .escape:
-                guard QuickLook.shared.isVisible else { return .ignored }
-                QuickLook.shared.close()
-                return .handled
-            case .rightArrow:
-                guard selectedURLs.count == 1, let url = selectedURLs.first, canEnter(url) else { return .ignored }
-                onNavigate(url)
-                return .handled
-            case .delete, .deleteForward:
-                guard !selectedURLs.isEmpty, !inZip else { return .ignored }
-                trashSelection(selectedURLs)
-                return .handled
-            case .leftArrow:
-                guard currentURL.path != "/" else { return .ignored }
-                onNavigate(currentURL.deletingLastPathComponent())
-                return .handled
-            case KeyEquivalent("\u{F705}"):
-                guard selectedURLs.count == 1 else { return .ignored }
-                startRename()
-                return .handled
-            default:
-                return .ignored
-            }
+        // 长按的 .repeat 也要走 latest（见其注释），否则 ←→ 拿着旧的 currentURL / 选中项原地不动
+        .onKeyPress(keys: [.return, .delete, .deleteForward, .leftArrow, .rightArrow, .space, .escape, KeyEquivalent("\u{F705}")]) {
+            latest.view?.handleKey($0) ?? .ignored
         }
         .onKeyPress(phases: [.down, .repeat]) { latest.view?.handleVim($0) ?? .ignored }
-        // Vim 始终有光标：进入目录等导致无选中时落在第一项，长按 l 才能一路进入下去
+        // 始终有光标：进入目录等导致无选中时落在第一项，长按 → / l 才能一路进入下去（方向键与 Vim 一致）
         .onChange(of: files) {
-            if vimMode, selectedURLs.isEmpty, pendingRename == nil, let first = sortedFiles.first {
+            if selectedURLs.isEmpty, pendingRename == nil, let first = sortedFiles.first {
                 selectedURLs = [first.url]
             }
         }
@@ -242,6 +209,48 @@ struct FileListView: View {
         }
     }
 
+    // MARK: - 按键
+
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        // 方向键自带 numericPad/function 标志，只看真正的修饰键；带 ⌘ 的交给外层（⌘←/→ 切栏）
+        guard !isRenaming,
+              press.modifiers.intersection([.command, .shift, .option, .control]).isEmpty
+        else { return .ignored }
+        // 长按只重复 ←→ 逐级进出目录；打开、删除、快速查看等不随按住重复触发
+        if press.phase == .repeat, press.key != .leftArrow, press.key != .rightArrow { return .handled }
+        switch press.key {
+        case .return:
+            guard !selectedURLs.isEmpty else { return .ignored }
+            openItems(selectedURLs)
+            return .handled
+        case .space:
+            QuickLook.shared.toggle(previewURLs(selectedURLs))
+            return .handled
+        case .escape:
+            guard QuickLook.shared.isVisible else { return .ignored }
+            QuickLook.shared.close()
+            return .handled
+        case .rightArrow:
+            guard selectedURLs.count == 1, let url = selectedURLs.first, canEnter(url) else { return .ignored }
+            onNavigate(url)
+            return .handled
+        case .delete, .deleteForward:
+            guard !selectedURLs.isEmpty, !inZip else { return .ignored }
+            trashSelection(selectedURLs)
+            return .handled
+        case .leftArrow:
+            guard currentURL.path != "/" else { return .ignored }
+            onNavigate(currentURL.deletingLastPathComponent())
+            return .handled
+        case KeyEquivalent("\u{F705}"):
+            guard selectedURLs.count == 1 else { return .ignored }
+            startRename()
+            return .handled
+        default:
+            return .ignored
+        }
+    }
+
     // MARK: - Vim 键位（Normal 模式，参考 vim / ranger）
 
     private func handleVim(_ press: KeyPress) -> KeyPress.Result {
@@ -265,7 +274,9 @@ struct FileListView: View {
             return .handled
         }
         // characters 已含 Shift 效果（G、:）
-        guard modifiers.isEmpty, let char = press.characters.first, !char.isWhitespace else { return .ignored }
+        // 方向键等功能键不归 Vim 管：否则下面会把它们的长按 .repeat 吞掉，↑↓ 无法连续移动
+        guard modifiers.isEmpty, !press.modifiers.contains(.function),
+              let char = press.characters.first, !char.isWhitespace else { return .ignored }
         let sequence = vimPending + String(char)
         // 长按只重复移动类命令（j k h l 进目录）；打开文件、粘贴等不随按住重复触发
         let isRepeat = press.phase == .repeat
