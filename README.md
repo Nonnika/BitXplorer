@@ -141,6 +141,8 @@ build/BitXplore_<版本>-arm64.dmg
 build/BitXplore_<版本>-universal.dmg
 ```
 
+dmg 打开后是带背景的安装窗口（应用 → 箭头 → 应用程序）。窗口布局由脚本通过 AppleScript 让 Finder 写入，首次打包时 macOS 会询问是否允许终端控制 Finder，需允许；拒绝时仍会产出 dmg，只是没有背景与布局。
+
 版本号的唯一来源是 `Sources/BitXplore/AppVersion.swift`，**发版前手动递增**。多架构构建需要完整的 Xcode（脚本默认使用 `/Applications/Xcode.app`）。
 
 升级已安装的版本：把新 app 拖入「应用程序」选「替换」即可。应用只在偏好设置中保存四项内容（是否看过引导、自选终端、快速访问列表、Vim 键位开关），覆盖安装不受影响。
@@ -153,6 +155,7 @@ BitXplorer/
 ├── build_and_run.sh               # Debug 增量构建 + 重启应用
 ├── package_app.sh                 # Release 打包 dmg（三架构，输出至 build/）
 ├── generate_icon.swift            # 用代码生成 App 图标
+├── generate_dmg_background.swift  # 生成 dmg 安装窗口背景（打包时自动调用）
 ├── scripts/zip_check/             # ZIP / 压缩解压 / 路径解析自检
 ├── docs/development-guide.md      # 开发流程
 └── Sources/BitXplore/
