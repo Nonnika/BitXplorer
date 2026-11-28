@@ -109,7 +109,6 @@ pack() {
         ln -s /Applications "$STAGE/Applications"
         mkdir -p "$STAGE/.background"
         cp "$BG_DIR/background.tiff" "$STAGE/.background/"
-        cp "$PROJ/AppIcon.icns" "$STAGE/.VolumeIcon.icns"
 
         # 先做可写镜像让 Finder 写入 .DS_Store（多留 20MB 余量），再压缩成只读 UDZO
         local SIZE_MB
@@ -117,12 +116,28 @@ pack() {
         rm -f "$RW_DMG"
         hdiutil create -volname "BitXplore" -srcfolder "$STAGE" -size "${SIZE_MB}m" -ov -format UDRW "$RW_DMG" >/dev/null
         rm -rf "$STAGE"
-        # 可能已挂着同名旧卷（BitXplore 1、2…），按 attach 返回的实际挂载点操作
+        # Finder 按卷名找卷：必须恰好挂在 /Volumes/BitXplore，否则布局会写到别的同名卷上（见 eject_old_volumes）
         local MOUNT
         MOUNT=$(hdiutil attach "$RW_DMG" -readwrite -noverify -noautoopen | grep -o '/Volumes/.*$')
-        SetFile -a V "$MOUNT/.background" "$MOUNT/.VolumeIcon.icns"
-        SetFile -a C "$MOUNT"
+        if [ "$MOUNT" != "/Volumes/BitXplore" ]; then
+            hdiutil detach "$MOUNT" -quiet
+            echo "错误：可写镜像挂到了 $MOUNT，说明还有别的 BitXplore 卷，请先推出" >&2
+            exit 1
+        fi
+        SetFile -a V "$MOUNT/.background"
         layout_window "$MOUNT" || echo "  ! Finder 布局失败（需在「系统设置 › 隐私与安全性 › 自动化」允许终端控制 Finder），dmg 可用但无背景"
+        # Finder 关窗后才异步写 .DS_Store（布局就存在这里）；不等它写完就卸载，dmg 里就没有布局
+        local i
+        for i in $(seq 30); do
+            [ -f "$MOUNT/.DS_Store" ] && break
+            sleep 0.5
+        done
+        [ -f "$MOUNT/.DS_Store" ] || echo "  ! Finder 没有写入 .DS_Store，dmg 打开后不会有背景与布局"
+        sleep 1  # 文件出现后再给 Finder 一点时间写完
+        # 卷图标须在布局之后放：Finder 布局时会删掉 .VolumeIcon.icns 并清掉自定义图标标记
+        cp "$PROJ/AppIcon.icns" "$MOUNT/.VolumeIcon.icns"
+        SetFile -a V "$MOUNT/.VolumeIcon.icns"
+        SetFile -a C "$MOUNT"
         sync
         hdiutil detach "$MOUNT" -quiet || hdiutil detach "$MOUNT" -force -quiet
         hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$DMG" >/dev/null
@@ -130,6 +145,22 @@ pack() {
         echo "  → BitXplore_${VERSION}-${SUFFIX}.dmg"
     fi
 }
+
+# AppleScript 里的卷按名字解析，同名卷不止一个时会改到错的那个（实际改的是旧 dmg，新 dmg 没有布局）。
+# 先推出镜像文件在 build/ 里的旧卷（马上会被覆盖），还剩同名卷就停下
+eject_old_volumes() {
+    local dev
+    for dev in $(hdiutil info | awk -v out="$OUT/" '/^image-path/ { keep = index($0, out) > 0 } /^\/dev\/disk[0-9]+\t/ && keep { print $1 }'); do
+        hdiutil detach "$dev" -quiet || hdiutil detach "$dev" -force -quiet || true
+    done
+    if ls -d /Volumes/BitXplore* >/dev/null 2>&1; then
+        echo "错误：以下 BitXplore 卷仍挂载着，dmg 布局会写错卷，请在 Finder 中推出后重试：" >&2
+        ls -d /Volumes/BitXplore* >&2
+        exit 1
+    fi
+}
+
+eject_old_volumes
 
 # 清理旧产物（build/ 为新目录，仓库根目录的残留一并清掉）
 rm -rf "$OUT"/BitXplore_*.dmg "$OUT"/BitXplore_*.zip "$APP" "$STAGE" "$BG_DIR" "$RW_DMG"
