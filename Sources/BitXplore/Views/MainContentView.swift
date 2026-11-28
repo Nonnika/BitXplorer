@@ -25,6 +25,8 @@ struct MainContentView: View {
     @State private var focusRequest = 1
     @FocusState private var searchFocused: Bool
     @State private var showPalette = false
+    /// 打开命令面板时预填的内容（`/` 进入文件搜索）
+    @State private var paletteSeed = ""
 
     private var active: Binding<Pane> { $panes[activePane] }
 
@@ -125,14 +127,17 @@ struct MainContentView: View {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture { showPalette = false }
-                    CommandPalette(isPresented: $showPalette, currentURL: active.wrappedValue.currentURL) { url in
+                    CommandPalette(isPresented: $showPalette, currentURL: active.wrappedValue.currentURL, initialText: paletteSeed) { url in
                         active.wrappedValue.open(url)
                     }
                     .padding(.top, 48)
                 }
             }
         }
-        .onChange(of: paletteTrigger) { showPalette.toggle() }
+        .onChange(of: paletteTrigger) {
+            paletteSeed = ""
+            showPalette.toggle()
+        }
         // 面板关闭后把键盘焦点还给活动栏
         .onChange(of: showPalette) { if !showPalette { focusRequest += 1 } }
         // 开/关双栏（⌘D/⌘W）后把键盘焦点交给活动栏
@@ -159,6 +164,10 @@ struct MainContentView: View {
                 focusRequest += 1
             } : nil,
             onTableRebuilt: { if activePane == index { focusRequest += 1 } },
+            onOpenPalette: { seed in
+                paletteSeed = seed
+                showPalette = true
+            },
             focusRequest: focusRequest,
             wantsFocus: activePane == index,
             clipboardURLs: $clipboardURLs,
@@ -182,6 +191,7 @@ struct PaneView: View {
     let onOpenInOtherPane: ((URL) -> Void)?
     /// 换目录/改搜索会重建 Table（见 FileListView 的 .id），旧表上的键盘焦点随之丢失，需要交还给新表
     let onTableRebuilt: () -> Void
+    let onOpenPalette: (String) -> Void
     let focusRequest: Int
     let wantsFocus: Bool
     @Binding var clipboardURLs: [URL]
@@ -228,7 +238,8 @@ struct PaneView: View {
                     onRefresh: { loadFiles(clearSelection: false) },
                     newFolderTrigger: pane.newFolderTrigger,
                     renameTrigger: pane.renameTrigger,
-                    onOpenInOtherPane: onOpenInOtherPane
+                    onOpenInOtherPane: onOpenInOtherPane,
+                    onOpenPalette: onOpenPalette
                 )
                 .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
                     guard press.modifiers.intersection([.command, .shift, .option, .control]) == .command
@@ -417,24 +428,62 @@ private struct PaneProbe: NSViewRepresentable {
         private func focusIfNeeded() {
             guard wantsFocus, focusRequest != handledRequest, window != nil else { return }
             handledRequest = focusRequest
-            // 等 SwiftUI 本轮布局完成（新开的右栏此刻还没放进窗口）
-            DispatchQueue.main.async { [weak self] in
-                guard let self, let window = self.window, let table = self.paneTable(),
+            claimFocus(request: focusRequest)
+        }
+
+        /// 换目录时 SwiftUI 分步替换 Table：某一刻本栏可能一张表都没有，也可能新旧两张并存。
+        /// 只设一次焦点常落空或落到随后被移除的旧表上，焦点退回窗口、按键全部失效（Vim 连续 h/l 尤其明显）。
+        /// 所以在一小段时间内反复检查：本栏只剩一张表且它不是第一响应者就交给它；新的请求到来时旧的检查作废
+        private func claimFocus(request: Int, attempt: Int = 0) {
+            let delays = [0.0, 0.05, 0.1, 0.2, 0.4]
+            DispatchQueue.main.asyncAfter(deadline: .now() + delays[attempt]) { [weak self] in
+                guard let self, let window = self.window, self.wantsFocus, request == self.focusRequest,
                       !(window.firstResponder is NSText)  // 正在搜索框/路径栏/重命名里输入时不抢焦点
                 else { return }
-                window.makeFirstResponder(table)
+                let tables = self.paneTables()
+                // 第一次检查时旧表往往还在且持有焦点，看似成功，替换随后才发生，所以不提前结束。
+                // 之后的检查只在焦点确实丢了（落回窗口或落在已移除的视图上）时介入，不抢用户刚点的边栏
+                let responder = window.firstResponder
+                let lost = responder == nil || responder === window || (responder as? NSView)?.window == nil
+                if tables.count == 1, responder !== tables[0], attempt == 0 || lost {
+                    window.makeFirstResponder(tables[0])
+                }
+                if attempt + 1 < delays.count { self.claimFocus(request: request, attempt: attempt + 1) }
             }
         }
 
         /// 本栏范围内的文件列表（SwiftUI Table 底层的 NSTableView）
-        private func paneTable() -> NSTableView? {
-            guard let window else { return nil }
+        private func paneTable() -> NSTableView? { paneTables().first }
+
+        private func paneTables() -> [NSTableView] {
+            guard let window else { return [] }
             let paneRect = convert(bounds, to: nil)
-            return Self.tables(in: window.contentView).first { table in
+            return Self.tables(in: window.contentView).filter { table in
                 let box = table.enclosingScrollView ?? table
                 let frame = box.convert(box.bounds, to: nil)
                 return paneRect.contains(NSPoint(x: frame.midX, y: frame.midY))
             }
+        }
+
+        /// Vim 键位下在工具栏搜索框按 Esc：保留筛选结果，焦点回到列表（回到 Normal 模式，接着可按 `:` 等）
+        private func handleEscapeInSearch(_ event: NSEvent) -> Bool {
+            guard wantsFocus, event.keyCode == 53, let window, event.window === window,
+                  UserDefaults.standard.object(forKey: "vimMode") as? Bool ?? true,
+                  let editor = window.firstResponder as? NSTextView, editor.delegate is NSSearchField,
+                  let table = paneTable()
+            else { return false }
+            window.makeFirstResponder(table)
+            return true
+        }
+
+        /// 没有任何视图持有焦点（刚启动、或换目录时旧表刚被移除）时按键：先把焦点交给本栏列表，
+        /// 这个按键随后照常分发给它，不会被窗口吞掉（Vim 连按 h/l 时尤其容易落在这个空档）
+        private func focusTableIfNothingFocused(_ event: NSEvent) {
+            guard wantsFocus, let window, event.window === window, window.isKeyWindow,
+                  window.firstResponder == nil || window.firstResponder === window,
+                  let table = paneTable()
+            else { return }
+            window.makeFirstResponder(table)
         }
 
         /// 窗口里没有任何列表/输入框获得焦点时按 ↑↓：聚焦活动栏列表并选中可见的第一行。
@@ -478,7 +527,12 @@ private struct PaneProbe: NSViewRepresentable {
             keyMonitor = nil
             guard window != nil else { return }
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                let handled = MainActor.assumeIsolated { self?.handleArrowWithoutFocus(event) ?? false }
+                let handled = MainActor.assumeIsolated {
+                    guard let self else { return false }
+                    if self.handleEscapeInSearch(event) || self.handleArrowWithoutFocus(event) { return true }
+                    self.focusTableIfNothingFocused(event)
+                    return false
+                }
                 return handled ? nil : event
             }
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in

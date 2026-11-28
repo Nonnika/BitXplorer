@@ -256,7 +256,7 @@ rm -rf AppIcon.iconset
 
 ## 8. 已装旧版本如何升级到新版本
 
-没有内置自动更新（零第三方依赖 → 无 Sparkle 之类的更新框架），检查/下载/替换都得自己走一遍。好消息：这个应用**几乎不保存用户状态** —— 只有三个 `@AppStorage` 键：`hasSeenOnboarding`（首次启动引导是否看过）、`customTerminalPath`（自选终端）和 `sidebarFavorites`（侧边栏快速访问），没有 `Application Support`、书签权限，所以覆盖安装没有数据迁移问题。
+没有内置自动更新（零第三方依赖 → 无 Sparkle 之类的更新框架），检查/下载/替换都得自己走一遍。好消息：这个应用**几乎不保存用户状态** —— 只有四个 `@AppStorage` 键：`hasSeenOnboarding`（首次启动引导是否看过）、`customTerminalPath`（自选终端）、`sidebarFavorites`（侧边栏快速访问）和 `vimMode`（Vim 键位开关），没有 `Application Support`、书签权限，所以覆盖安装没有数据迁移问题。
 
 ### 8.1 标准升级（覆盖安装，推荐）
 

@@ -19,10 +19,20 @@ struct FileListView: View {
     let renameTrigger: Int
     /// 双栏时提供：在另一栏打开文件夹
     var onOpenInOtherPane: ((URL) -> Void)? = nil
+    /// 打开命令面板并预填内容：`/` 搜索文件（两种键位都可用），Vim 的 `:` 空面板
+    var onOpenPalette: ((String) -> Void)? = nil
 
     /// 用户自选的终端 App 路径（「选择其他终端…」），在菜单中排第一
     @AppStorage("customTerminalPath") private var customTerminalPath = ""
     @AppStorage(SidebarFavorite.storageKey) private var favoritesData = Data()
+    /// Vim 键位开关（显示菜单），开启时字母键不再触发列表的按首字母跳转
+    @AppStorage("vimMode") private var vimMode = true
+    /// Vim 多键命令的前缀（g / y / d / c），等待第二个键
+    @State private var vimPending = ""
+    /// 最近一次渲染的视图值。SwiftUI 只在按下时刷新 onKeyPress 闭包，长按期间的 .repeat
+    /// 仍落在旧 self 上（selectedURLs / currentURL 都是旧快照，j 会原地不动），所以转发给它
+    @State private var latest = Latest()
+    private final class Latest { var view: FileListView? }
 
     @State private var sortOrder: [FileSortComparator] = [FileSortComparator(.name)]
     @State private var isRenaming = false
@@ -40,6 +50,7 @@ struct FileListView: View {
     }
 
     var body: some View {
+        let _ = latest.view = self
         ScrollViewReader { proxy in
             table.onChange(of: scrollTarget) {
                 guard let scrollTarget else { return }
@@ -157,6 +168,13 @@ struct FileListView: View {
                 return .ignored
             }
         }
+        .onKeyPress(phases: [.down, .repeat]) { latest.view?.handleVim($0) ?? .ignored }
+        // Vim 始终有光标：进入目录等导致无选中时落在第一项，长按 l 才能一路进入下去
+        .onChange(of: files) {
+            if vimMode, selectedURLs.isEmpty, pendingRename == nil, let first = sortedFiles.first {
+                selectedURLs = [first.url]
+            }
+        }
         .renameAction { startRename() }
         // Quick Look 打开时跟随选中项（↑↓ 浏览）
         .onChange(of: selectedURLs) { QuickLook.shared.updateIfVisible(previewURLs(selectedURLs)) }
@@ -214,6 +232,81 @@ struct FileListView: View {
                 drop(urls, into: currentURL)
             }
         }
+    }
+
+    // MARK: - Vim 键位（Normal 模式，参考 vim / ranger）
+
+    private func handleVim(_ press: KeyPress) -> KeyPress.Result {
+        guard !isRenaming else { return .ignored }
+        let modifiers = press.modifiers.intersection([.command, .option, .control])
+        // `/` 不是字母，不影响按首字母跳转，所以关闭 Vim 键位时也可用
+        if modifiers.isEmpty, press.characters == "/", press.phase == .down {
+            vimPending = ""
+            onOpenPalette?("/")
+            return .handled
+        }
+        guard vimMode else { return .ignored }
+        if modifiers == .control {
+            vimPending = ""
+            // ponytail: 半页固定 10 行；需要时按可见行数计算
+            switch press.key.character {
+            case "d": moveSelection(by: 10)
+            case "u": moveSelection(by: -10)
+            default: return .ignored
+            }
+            return .handled
+        }
+        // characters 已含 Shift 效果（G、:）
+        guard modifiers.isEmpty, let char = press.characters.first, !char.isWhitespace else { return .ignored }
+        let sequence = vimPending + String(char)
+        // 长按只重复移动类命令（j k h l 进目录）；打开文件、粘贴等不随按住重复触发
+        let isRepeat = press.phase == .repeat
+        if isRepeat, !["j", "k", "h", "-", "l"].contains(sequence) { return .handled }
+        vimPending = ""
+
+        switch sequence {
+        case "j": moveSelection(by: 1)
+        case "k": moveSelection(by: -1)
+        case "h", "-":
+            guard currentURL.path != "/" else { return .handled }
+            onNavigate(currentURL.deletingLastPathComponent())
+        case "l":
+            if isRepeat {
+                guard selectedURLs.count == 1, let url = selectedURLs.first, canEnter(url) else { return .handled }
+            }
+            openItems(selectedURLs)
+        case "gg": selectRow(0)
+        case "G": selectRow(sortedFiles.count - 1)
+        case "gh": onNavigate(FileManager.default.homeDirectoryForCurrentUser)
+        case "yy": copySelection(selectedURLs)
+        case "dd": if !inZip { cutSelection(selectedURLs) }
+        case "p": pasteFromClipboard()
+        case "cw": if !inZip { startRename() }
+        case ":": onOpenPalette?("")
+        case "g", "y", "d", "c": vimPending = sequence
+        default:
+            // 前缀后跟了无效键：整串作废（同 vim）；单个未映射的键交还系统
+            return sequence.count > 1 ? .handled : .ignored
+        }
+        return .handled
+    }
+
+    /// 选中项上下移动；无选中时 j 从第一项、k 从最后一项开始
+    private func moveSelection(by delta: Int) {
+        let rows = sortedFiles
+        guard !rows.isEmpty else { return }
+        let current = delta < 0
+            ? rows.firstIndex { selectedURLs.contains($0.url) }
+            : rows.lastIndex { selectedURLs.contains($0.url) }
+        selectRow(current.map { $0 + delta } ?? (delta > 0 ? 0 : rows.count - 1))
+    }
+
+    private func selectRow(_ index: Int) {
+        let rows = sortedFiles
+        guard !rows.isEmpty else { return }
+        let url = rows[min(max(index, 0), rows.count - 1)].url
+        selectedURLs = [url]
+        scrollTarget = url
     }
 
     // MARK: - 右键菜单

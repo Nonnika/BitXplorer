@@ -56,8 +56,18 @@ struct BitXploreApp: App {
     /// App 级操作（粘贴/废纸篓）完成后 +1，MainContentView 监听后重载列表
     @State private var refreshTick = 0
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+    @AppStorage("vimMode") private var vimMode = true
 
     private let fsService = FileSystemService()
+
+    init() {
+        // Vim 键位需要长按 hjkl 连续触发；系统默认的「按住显示重音字符」会吞掉字母键的自动重复。
+        // 写在 registration 域：只作用于本进程、不落盘；须在 NSApplication 读取文本输入设置前完成。
+        // 改动 Vim 开关后重启应用生效
+        if UserDefaults.standard.object(forKey: "vimMode") as? Bool ?? true {
+            UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
+        }
+    }
 
     private var active: Pane {
         get { panes[activePane] }
@@ -187,6 +197,8 @@ struct BitXploreApp: App {
                     showHiddenFiles.toggle()
                 }
                 .keyboardShortcut(".", modifiers: [.command, .shift])
+
+                Toggle("Vim 键位", isOn: $vimMode)
 
                 Button(isDualPane ? "关闭双栏视图" : "双栏视图") {
                     toggleDualPane()
