@@ -68,7 +68,7 @@ struct CommandPalette: View {
                 Image(systemName: replace != nil ? "arrow.left.arrow.right" : query == nil ? "command" : "magnifyingglass")
                     .foregroundStyle(.secondary)
                 HighlightedField(
-                    text: $text, prompt: "粘贴路径，输入 / 搜索文件，%s/ 批量改名", font: .title3, focus: $focused,
+                    text: $text, prompt: "轻触输入", font: .title3, focus: $focused,
                     tokens: { [currentURL] in CommandSyntax.tokens($0) { FileSystemService.resolve($0, relativeTo: currentURL) != nil } },
                     onSubmit: submit)
                     .onKeyPress(keys: [.upArrow, .downArrow]) { press in
@@ -205,8 +205,8 @@ struct CommandPalette: View {
             switch replace {
             case .failure(.incomplete):
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(verbatim: "%s/文件路径/目标/替换：把文件名中的目标改为替换文字，区分大小写；目标中 * 为通配，$REGX(正则) 为正则表达式")
-                    Text(verbatim: "路径：文件（非文件夹），或 $(命令) 取另一条命令的结果，如 $(/*.png/f) · 变量：$FILENAME 当前文件名，$SUFFIX 扩展名，$DATETIME(yy/mm/dd) 日期（单个 y/m/d 为 05/9/1）· \\/ \\$ \\* 表示字面字符")
+                    Text(verbatim: "%s/<路径 | $(命令)>/<目标>/<替换>")
+                    Text(verbatim: "目标：文字  *  $REGX(正则)    变量：$FILENAME  $SUFFIX  $DATETIME(yy/mm/dd)    转义：\\/  \\$  \\*  \\\\")
                         .font(.caption)
                 }
                 .foregroundStyle(.secondary)
@@ -229,8 +229,8 @@ struct CommandPalette: View {
                     .foregroundStyle(.secondary)
             case .success where search == nil:
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("/名称/范围/类型，范围与类型可省略")
-                    Text(verbatim: "名称：* 为通配（如 *.md），\\* 表示星号，$REGX(正则) 按正则查找 · 范围：g 全部层级（默认），d:2 最多 2 层 · 类型：f 文件，d 文件夹")
+                    Text(verbatim: "/<名称>[/g | d:N][/f | d]")
+                    Text(verbatim: "名称：文字  *  \\*  $REGX(正则)")
                         .font(.caption)
                 }
                 .foregroundStyle(.secondary)
