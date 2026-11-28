@@ -1,5 +1,5 @@
 #!/bin/bash
-# 编译并运行命令面板批量替换（TextReplace）与语法高亮（CommandSyntax）自检
+# 编译并运行命令面板批量改名（TextReplace）与语法高亮（CommandSyntax）自检
 set -e
 cd "$(dirname "$0")/../.."
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"

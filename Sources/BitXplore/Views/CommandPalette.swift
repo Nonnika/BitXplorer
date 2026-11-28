@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 命令面板（⌘⌥P / Vim `:`）：粘贴/输入路径回车前往；`/名称[/范围][/类型]` 在当前目录下搜索（语法见 FileSearch）；
-/// `%s/路径/目标/替换` 批量替换文件中的文字（语法见 TextReplace），先预览，回车执行
+/// `%s/路径/目标/替换` 批量替换文件名中的文字即改名（语法见 TextReplace），先预览，回车执行
 struct CommandPalette: View {
     @Binding var isPresented: Bool
     /// 相对路径与文件搜索的基准目录（活动栏当前目录）
@@ -10,16 +10,12 @@ struct CommandPalette: View {
     var initialText = ""
     let onOpen: (URL) -> Void
 
-    /// 输入框内容带语法高亮（TextField 不能给文字着色，故用 TextEditor）；`text` 是其纯文本，每次改字后同步并重新着色
-    @State private var rich = AttributedString()
-    @State private var selection = AttributedTextSelection()
     @State private var text = ""
     @FocusState private var focused: Bool
-    @Environment(\.colorScheme) private var colorScheme
     @State private var matches: [URL] = []
     @State private var highlighted = 0
     @State private var searching = false
-    /// 批量替换：预览（或执行后）的结果、执行出错信息、是否已执行
+    /// 批量改名：预览（或执行后）的结果、执行出错信息、是否已执行
     @State private var changes: [TextReplace.Change] = []
     @State private var replaceIssue: String?
     @State private var replaced = false
@@ -52,7 +48,7 @@ struct CommandPalette: View {
         }
     }
 
-    /// `%s/` 开头为批量替换；只去掉开头空白，替换文本末尾的空格要保留
+    /// `%s/` 开头为批量改名；只去掉开头空白，替换文本末尾的空格要保留
     private var replace: Result<TextReplace, TextReplace.ParseError>? {
         let input = text.drop { $0.isWhitespace }
         guard input.hasPrefix("%s/") else { return nil }
@@ -71,26 +67,10 @@ struct CommandPalette: View {
             HStack(spacing: 10) {
                 Image(systemName: replace != nil ? "arrow.left.arrow.right" : query == nil ? "command" : "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextEditor(text: $rich, selection: $selection)
-                    .textEditorStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                    .scrollDisabled(true)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .font(.title3)
-                    .focused($focused)
-                    .overlay(alignment: .leading) {
-                        if text.isEmpty {
-                            Text("粘贴路径，输入 / 搜索文件，%s/ 批量替换")
-                                .font(.title3)
-                                .foregroundStyle(.tertiary)
-                                .padding(.leading, 5)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .onKeyPress(.return) {
-                        submit()
-                        return .handled
-                    }
+                HighlightedField(
+                    text: $text, prompt: "粘贴路径，输入 / 搜索文件，%s/ 批量改名", font: .title3, focus: $focused,
+                    tokens: { [currentURL] in CommandSyntax.tokens($0) { FileSystemService.resolve($0, relativeTo: currentURL) != nil } },
+                    onSubmit: submit)
                     .onKeyPress(keys: [.upArrow, .downArrow]) { press in
                         guard search != nil, !matches.isEmpty else { return .ignored }
                         let delta = press.key == .downArrow ? 1 : -1
@@ -120,56 +100,12 @@ struct CommandPalette: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 16))
         .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
         .onAppear {
-            rich = AttributedString(initialText)
-            selection = AttributedTextSelection(insertionPoint: rich.endIndex)
+            text = initialText
             focused = true
         }
-        .onChange(of: rich) { restyle() }
-        // 颜色写在文字属性里，不会随外观自动变：切换亮 / 暗色时重新着色
-        .onChange(of: colorScheme) { restyle(force: true) }
         .onExitCommand { isPresented = false }
         .task(id: search) { await runSearch() }
         .task(id: replaceOp) { await runPreview() }
-    }
-
-    /// 只保留单行（粘贴的换行去掉），并按 CommandSyntax 重新着色；只改属性不改文字时直接返回，避免循环
-    private func restyle(force: Bool = false) {
-        var plain = String(rich.characters)
-        let pasted = plain.contains(where: \.isNewline)
-        if pasted {
-            plain.removeAll(where: \.isNewline)
-            rich = AttributedString(plain)
-            selection = AttributedTextSelection(insertionPoint: rich.endIndex)
-        }
-        guard force || pasted || plain != text else { return }
-        text = plain
-        let base = currentURL
-        let tokens = CommandSyntax.tokens(plain) { FileSystemService.resolve($0, relativeTo: base) != nil }
-        let dark = colorScheme == .dark
-        rich.transform(updating: &selection) { rich in
-            // 未着色的文字也显式给色：TextEditor 在玻璃底上不会按外观解析默认色，暗色下会发黑
-            rich.foregroundColor = dark ? Color(white: 0.94) : Color(white: 0.1)
-            for token in tokens {
-                let start = rich.characters.index(rich.startIndex, offsetBy: token.range.lowerBound)
-                let end = rich.characters.index(start, offsetBy: token.range.count)
-                rich[start..<end].foregroundColor = Self.color(token.kind, dark: dark)
-            }
-        }
-    }
-
-    /// 两套配色：亮色用深而饱和的色，在浅色玻璃上够对比；暗色用提亮的浅色，避免系统色在深底上发闷
-    private static func color(_ kind: CommandSyntax.Kind, dark: Bool) -> Color {
-        let (light, night): ((Double, Double, Double), (Double, Double, Double)) = switch kind {
-        case .keyword: ((0.55, 0.16, 0.72), (0.84, 0.62, 1.00))
-        case .separator: ((0.45, 0.45, 0.48), (0.62, 0.62, 0.66))
-        case .variable: ((0.76, 0.36, 0.00), (1.00, 0.70, 0.36))
-        case .escape: ((0.00, 0.50, 0.56), (0.40, 0.86, 0.86))
-        case .wildcard: ((0.08, 0.36, 0.86), (0.46, 0.70, 1.00))
-        case .argument: ((0.13, 0.50, 0.16), (0.58, 0.88, 0.50))
-        case .error: ((0.82, 0.10, 0.12), (1.00, 0.45, 0.45))
-        }
-        let (r, g, b) = dark ? night : light
-        return Color(red: r, green: g, blue: b)
     }
 
     private var results: some View {
@@ -199,7 +135,12 @@ struct CommandPalette: View {
             ScrollView {
                 VStack(spacing: 2) {
                     ForEach(changes, id: \.url) { change in
-                        resultRow(change.url, isHighlighted: false, detail: change.failed ? "写入失败" : "\(change.count) 处")
+                        if replaced, change.problem == nil {
+                            resultRow(change.url.deletingLastPathComponent().appendingPathComponent(change.newName),
+                                      isHighlighted: false, detail: "已改名")
+                        } else {
+                            resultRow(change.url, isHighlighted: false, detail: change.problem ?? "→ \(change.newName)")
+                        }
                     }
                 }
                 .padding(6)
@@ -214,12 +155,11 @@ struct CommandPalette: View {
     }
 
     private var replaceSummary: String {
-        let total = changes.reduce(0) { $0 + $1.count }
-        let failed = changes.count { $0.failed }
-        if !replaced { return searching ? "正在替换…" : "回车在 \(changes.count) 个文件中替换 \(total) 处" }
-        return failed == 0
-            ? "已在 \(changes.count) 个文件中替换 \(total) 处，回车关闭"
-            : "\(failed) 个文件写入失败，其余已替换，回车关闭"
+        let skipped = changes.count { $0.problem != nil }
+        let ok = changes.count - skipped
+        let skipNote = skipped == 0 ? "" : "，\(skipped) 个跳过"
+        if !replaced { return searching ? "正在改名…" : ok == 0 ? "没有可改名的文件" : "回车重命名 \(ok) 个文件\(skipNote)" }
+        return "已重命名 \(ok) 个文件\(skipNote)，回车关闭"
     }
 
     private func resultRow(_ url: URL, isHighlighted: Bool, detail: String? = nil) -> some View {
@@ -265,8 +205,8 @@ struct CommandPalette: View {
             switch replace {
             case .failure(.incomplete):
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("%s/路径/目标/替换，目标按字面、区分大小写匹配")
-                    Text("路径：文件路径，或 $(命令) 取另一条命令的结果，如 $(/*.md/f) · 变量：$FILENAME 当前文件名，$DATETIME(yy/mm/dd) 日期（单个 y/m/d 为 05/9/1）· \\/ \\$ 表示字面字符")
+                    Text(verbatim: "%s/文件路径/目标/替换：把文件名中的目标改为替换文字，区分大小写；目标中 * 为通配，$REGX(正则) 为正则表达式")
+                    Text(verbatim: "路径：文件（非文件夹），或 $(命令) 取另一条命令的结果，如 $(/*.png/f) · 变量：$FILENAME 当前文件名，$SUFFIX 扩展名，$DATETIME(yy/mm/dd) 日期（单个 y/m/d 为 05/9/1）· \\/ \\$ \\* 表示字面字符")
                         .font(.caption)
                 }
                 .foregroundStyle(.secondary)
@@ -278,7 +218,7 @@ struct CommandPalette: View {
                     Label(replaceIssue, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(searching ? "正在查找…" : "没有可替换的内容")
+                    Text(searching ? "正在查找…" : "文件名中没有要替换的文字")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -290,7 +230,7 @@ struct CommandPalette: View {
             case .success where search == nil:
                 VStack(alignment: .leading, spacing: 4) {
                     Text("/名称/范围/类型，范围与类型可省略")
-                    Text("名称：* 为通配（如 *.md），\\* 表示星号 · 范围：g 全部层级（默认），d:2 最多 2 层 · 类型：f 文件，d 文件夹")
+                    Text(verbatim: "名称：* 为通配（如 *.md），\\* 表示星号，$REGX(正则) 按正则查找 · 范围：g 全部层级（默认），d:2 最多 2 层 · 类型：f 文件，d 文件夹")
                         .font(.caption)
                 }
                 .foregroundStyle(.secondary)
@@ -377,7 +317,7 @@ struct CommandPalette: View {
                 isPresented = false
                 return
             }
-            guard let op = replaceOp, !changes.isEmpty, !searching else {
+            guard let op = replaceOp, changes.contains(where: { $0.problem == nil }), !searching else {
                 NSSound.beep()
                 return
             }

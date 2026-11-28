@@ -17,6 +17,9 @@ check(parse("a/x") == nil && parse("a/d:0") == nil && parse("a/f/f") == nil, "�
 check(parse("a\\*b")?.parts == ["a*b"], "\\* 为字面星号")
 check(parse("*.md")?.parts == ["", ".md"], "通配切段")
 
+check(parse("$REGX(^img_\\d+)")?.regex == "^img_\\d+", "$REGX 正则")
+check(parse("$REGX([)") == nil && parse("$REGX(a") == nil, "正则有误 / 缺右括号")
+
 // 匹配
 let m = { (p: String, n: String) in parse(p)!.matches(name: n) }
 check(m("read", "README.md") && !m("xyz", "README.md"), "包含、不区分大小写")
@@ -26,6 +29,7 @@ check(m("a*b*c", "aXbYc") && !m("a*b*c", "acb"), "中间段按顺序")
 check(m("a*a", "aa") && !m("a*a", "a"), "首尾段不重叠")
 check(m("*", "anything"), "单个 *")
 check(m("a\\*b", "xa*by") && !m("a\\*b", "aXb"), "字面星号")
+check(m("$REGX(^img_\\d+)", "IMG_001.png") && !m("$REGX(^img_\\d+)", "my img_1"), "正则：不区分大小写、不自动锚定")
 
 // 遍历：层级与类型
 let root = URL(fileURLWithPath: CommandLine.arguments[1])
@@ -37,4 +41,5 @@ check(names(parse("*.md/d:2")!.find(in: root, limit: 99)) == ["top.md", "mid.md"
 check(names(parse("*/d")!.find(in: root, limit: 99)) == ["sub", "deep", "App.app"], "只要文件夹")
 check(names(parse("*/f")!.find(in: root, limit: 99)) == ["top.md", "mid.md", "low.md"], "只要文件")
 check(all.find(in: root, limit: 2).count == 2, "数量上限")
+check(names(parse("$REGX(\\.md$)/f")!.find(in: root, limit: 99)) == ["top.md", "mid.md", "low.md"], "正则遍历")
 print("search_check OK")

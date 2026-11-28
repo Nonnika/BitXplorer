@@ -44,6 +44,8 @@ struct FileListView: View {
     @State private var pendingRename: URL?
     /// 需要滚动到可见的行
     @State private var scrollTarget: URL?
+    /// 「神奇重命名」的对象，非空即弹出
+    @State private var magicRenameURLs: [URL] = []
 
     private var sortedFiles: [FileItem] {
         files.sorted(using: sortOrder)
@@ -56,6 +58,12 @@ struct FileListView: View {
                 guard let scrollTarget else { return }
                 proxy.scrollTo(scrollTarget)
                 self.scrollTarget = nil
+            }
+        }
+        .sheet(isPresented: Binding(get: { !magicRenameURLs.isEmpty }, set: { if !$0 { magicRenameURLs = [] } })) {
+            MagicRenameView(urls: magicRenameURLs) { renamed in
+                if !renamed.isEmpty { selectedURLs = Set(renamed) }
+                onRefresh()
             }
         }
     }
@@ -367,6 +375,8 @@ struct FileListView: View {
         .disabled(inZip)
         Button("重命名") { startRename(target: single) }
             .disabled(single == nil || inZip)
+        Button("神奇重命名…") { magicRenameURLs = ordered.filter { !isDirectory($0) } }
+            .disabled(inZip || ordered.allSatisfy(isDirectory))
         Divider()
 
         Button(single.map { "压缩「\($0.lastPathComponent)」" } ?? "压缩 \(ordered.count) 个项目") {

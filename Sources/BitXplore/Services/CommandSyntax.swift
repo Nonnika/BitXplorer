@@ -17,6 +17,13 @@ enum CommandSyntax {
             return highlighter.tokens
         }
     }
+
+    /// 「神奇重命名」的查找 / 替换框：只有一段文字，`/` 是普通字符，变量与转义同 `%s`；`*` 只在查找框里是通配
+    static func fieldTokens(_ text: String, isTarget: Bool) -> [Token] {
+        var highlighter = Highlighter(chars: Array(text), isPath: { _ in false })
+        highlighter.replace(0, highlighter.chars.count, splitsOnSlash: false, wildcardField: isTarget ? 0 : -1)
+        return highlighter.tokens
+    }
 }
 
 private struct Highlighter {
@@ -54,6 +61,15 @@ private struct Highlighter {
     mutating func search(_ start: Int, _ end: Int) {
         add(start, start + 1, .separator)
         var i = start + 1
+        let nameEnd = chars[i..<end].firstIndex(of: "/") ?? end
+        if String(chars[i..<nameEnd]).hasPrefix("$REGX(") {
+            // 整段正则：结尾的 ) 之前都是表达式
+            let close = chars[nameEnd - 1] == ")" && nameEnd - i > 6 ? nameEnd - 1 : nameEnd
+            add(i, i + 6, .variable)
+            group(i + 5, close) { _ in .argument }
+            add(close, nameEnd, .variable)
+            i = nameEnd
+        }
         while i < end, chars[i] != "/" {
             if chars[i] == "\\", i + 1 < end, chars[i + 1] != "/" {
                 add(i, i + 2, .escape)
@@ -75,15 +91,20 @@ private struct Highlighter {
         }
     }
 
-    mutating func replace(_ start: Int, _ end: Int) {
-        var i = start
+    /// `wildcardField`：数到第几个 `/` 之后的 `*` 是通配。`%s` 从紧跟的 `/` 开始，路径为 1、目标为 2
+    mutating func replace(_ start: Int, _ end: Int, splitsOnSlash: Bool = true, wildcardField: Int = 2) {
+        var i = start, field = 0
         while i < end {
             switch chars[i] {
-            case "/":
+            case "/" where splitsOnSlash:
                 add(i, i + 1, .separator)
+                field += 1
+                i += 1
+            case "*":
+                if field == wildcardField { add(i, i + 1, .wildcard) }
                 i += 1
             case "\\":
-                if i + 1 < end, "/$\\".contains(chars[i + 1]) { add(i, i + 2, .escape) }
+                if i + 1 < end, "/$*\\".contains(chars[i + 1]) { add(i, i + 2, .escape) }
                 i += 2
             case "$":
                 i = variable(i, end)
@@ -93,7 +114,7 @@ private struct Highlighter {
         }
     }
 
-    /// `$(命令)`、`$FILENAME`、`$DATETIME(格式)`，返回其后的位置
+    /// `$(命令)`、`$FILENAME`、`$SUFFIX`、`$DATETIME(格式)`、`$REGX(正则)`，返回其后的位置
     mutating func variable(_ start: Int, _ end: Int) -> Int {
         var i = start + 1
         if i < end, chars[i] == "(" {
@@ -105,27 +126,33 @@ private struct Highlighter {
         }
         while i < end, chars[i].isASCII, chars[i].isLetter || chars[i] == "_" { i += 1 }
         let name = String(chars[start + 1..<i])
-        let known = ["FILENAME", "DATETIME"]
+        let known = ["FILENAME", "SUFFIX", "DATETIME", "REGX"]
         if known.contains(name) || (i == end && known.contains { $0.hasPrefix(name) }) {
             add(start, i, .variable)
         } else {
             add(start, max(i, start + 1), .error)
         }
-        guard name == "DATETIME", i < end, chars[i] == "(" else { return i }
+        guard name == "DATETIME" || name == "REGX", i < end, chars[i] == "(" else { return i }
         let close = groupEnd(i, end)
         add(i, i + 1, .variable)
-        var j = i + 1
+        let isDate = name == "DATETIME"
+        group(i, close) { isDate && "ymdYMD".contains($0) ? .keyword : .argument }
+        add(close, min(close + 1, end), .variable)
+        return min(close + 1, end)
+    }
+
+    /// 括号内的内容（`open` 为左括号位置，不含）：`\x` 为转义，其余按 `kind` 着色
+    mutating func group(_ open: Int, _ close: Int, kind: (Character) -> Kind) {
+        var j = open + 1
         while j < close {
             if chars[j] == "\\", j + 1 < close {
                 add(j, j + 2, .escape)
                 j += 2
                 continue
             }
-            add(j, j + 1, "ymdYMD".contains(chars[j]) ? .keyword : .argument)
+            add(j, j + 1, kind(chars[j]))
             j += 1
         }
-        add(close, min(close + 1, end), .variable)
-        return min(close + 1, end)
     }
 
     /// 与 `(` 配对的 `)` 的位置（跳过 `\x`），未闭合返回 end
